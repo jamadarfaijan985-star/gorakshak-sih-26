@@ -1,0 +1,6 @@
+{
+  "name": "INNOVX - Bovine Mastitis Early Forecasting",
+  "description": "AI-Powered Dairy Livestock Health Intelligence for Early Forecasting of Bovine Mastitis in Indian Dairy Farms",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
