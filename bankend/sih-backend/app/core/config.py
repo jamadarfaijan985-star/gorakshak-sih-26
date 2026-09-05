@@ -11,6 +11,7 @@ from pydantic_settings import BaseSettings
 # Resolve the repository root: bankend/sih-backend/app/core/ → repo root (4 levels up)
 _HERE = Path(__file__).resolve()
 _REPO_ROOT = _HERE.parents[4]  # gorakshak-sih-26/
+_BACKEND_ROOT = _HERE.parents[2]  # gorakshak-sih-26/bankend/sih-backend/
 
 
 class Settings(BaseSettings):
@@ -65,7 +66,7 @@ class Settings(BaseSettings):
 
     class Config:
         case_sensitive = True
-        env_file = ".env"
+        env_file = str(_BACKEND_ROOT / ".env")
 
 
 settings = Settings()
