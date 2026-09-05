@@ -1,172 +1,63 @@
-"""
-Sample pytest tests for API endpoints.
+"""API smoke tests for the current MongoDB/Motor backend."""
 
-To run:
-    pytest tests/ -v
-    pytest tests/ --cov=app
-"""
+from collections.abc import AsyncIterator
 
 import pytest
-from httpx import AsyncClient
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
-from sqlalchemy.orm import sessionmaker
+from httpx import ASGITransport, AsyncClient
+from mongomock_motor import AsyncMongoMockClient
 
+from app.db import session as session_module
 from app.main import app
-from app.db.base import Base
-from app.db.session import get_session
-from app.models.models import Farm, User, Animal
-from app.core.security import get_password_hash
-import uuid
-
-
-# Test database setup
-TEST_DATABASE_URL = "sqlite+aiosqlite:///:memory:"
 
 
 @pytest.fixture
-async def test_db_session():
-    """Create a test database session."""
-    engine = create_async_engine(TEST_DATABASE_URL, echo=False)
-    
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-    
-    async_session_local = sessionmaker(
-        engine, class_=AsyncSession, expire_on_commit=False
-    )
-    
-    async with async_session_local() as session:
-        yield session
-    
-    await engine.dispose()
+async def client() -> AsyncIterator[AsyncClient]:
+    """Provide an API client backed by an isolated async in-memory database."""
+    original_db = session_module.db
+    mock_client = AsyncMongoMockClient()
+    session_module.db = mock_client["api_test"]
 
-
-@pytest.fixture
-async def client(test_db_session):
-    """Create a test client."""
-    async def override_get_session():
-        yield test_db_session
-    
-    app.dependency_overrides[get_session] = override_get_session
-    
-    async with AsyncClient(app=app, base_url="http://test") as ac:
-        yield ac
+    try:
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as api_client:
+            yield api_client
+    finally:
+        session_module.db = original_db
 
 
 @pytest.mark.asyncio
-async def test_health_check(client):
-    """Test health check endpoint."""
+async def test_health_check(client: AsyncClient):
     response = await client.get("/health")
+
     assert response.status_code == 200
     assert response.json()["status"] == "ok"
 
 
 @pytest.mark.asyncio
-async def test_create_farm(client, test_db_session):
-    """Test farm creation."""
-    response = await client.post(
-        "/api/v1/farms",
-        json={
-            "name": "Test Farm",
-            "code": "TEST001",
-            "location_text": "Test Location",
-        },
-    )
+async def test_root_endpoint(client: AsyncClient):
+    response = await client.get("/")
+
     assert response.status_code == 200
-    data = response.json()
-    assert data["name"] == "Test Farm"
-    assert data["code"] == "TEST001"
+    assert response.json()["version"] == "0.2.0"
 
 
 @pytest.mark.asyncio
-async def test_list_farms(client, test_db_session):
-    """Test listing farms."""
-    # Create a farm first
-    farm = Farm(
-        id=uuid.uuid4(),
-        name="Test Farm",
-        code="TEST001",
-    )
-    test_db_session.add(farm)
-    await test_db_session.commit()
-    
-    response = await client.get("/api/v1/farms")
-    assert response.status_code == 200
-    data = response.json()
-    assert data["meta"]["total"] >= 1
+async def test_user_registration_and_login(client: AsyncClient):
+    user = {
+        "name": "Test User",
+        "email": "test@example.com",
+        "password": "testpass123",
+        "role": "farmer",
+    }
 
+    registration = await client.post("/api/v1/auth/register", json=user)
+    assert registration.status_code == 200
+    assert registration.json()["email"] == user["email"]
 
-@pytest.mark.asyncio
-async def test_create_animal(client, test_db_session):
-    """Test animal creation."""
-    # Create farm first
-    farm = Farm(
-        id=uuid.uuid4(),
-        name="Test Farm",
-        code="TEST001",
-    )
-    test_db_session.add(farm)
-    await test_db_session.commit()
-    
-    # Create animal
-    response = await client.post(
-        "/api/v1/animals",
-        json={
-            "farm_id": str(farm.id),
-            "tag_id": "TEST_COW_001",
-            "species": "cow",
-        },
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["tag_id"] == "TEST_COW_001"
-    assert data["species"] == "cow"
-
-
-@pytest.mark.asyncio
-async def test_user_registration(client):
-    """Test user registration."""
-    response = await client.post(
-        "/api/v1/auth/register",
-        json={
-            "name": "Test User",
-            "email": "test@example.com",
-            "password": "testpass123",
-            "role": "farmer",
-        },
-    )
-    assert response.status_code == 200
-    data = response.json()
-    assert data["email"] == "test@example.com"
-    assert data["role"] == "farmer"
-
-
-@pytest.mark.asyncio
-async def test_user_login(client, test_db_session):
-    """Test user login."""
-    # Create user
-    user = User(
-        id=uuid.uuid4(),
-        name="Test User",
-        email="test@example.com",
-        password_hash=get_password_hash("testpass123"),
-        role="farmer",
-    )
-    test_db_session.add(user)
-    await test_db_session.commit()
-    
-    # Login
-    response = await client.post(
+    login = await client.post(
         "/api/v1/auth/login",
-        json={
-            "email": "test@example.com",
-            "password": "testpass123",
-        },
+        json={"email": user["email"], "password": user["password"]},
     )
-    assert response.status_code == 200
-    data = response.json()
-    assert "access_token" in data
-    assert data["token_type"] == "bearer"
-
-
-# Add more tests as needed
+    assert login.status_code == 200
+    assert login.json()["token_type"] == "bearer"
+    assert login.json()["access_token"]

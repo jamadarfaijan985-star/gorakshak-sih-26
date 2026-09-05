@@ -3,7 +3,7 @@ Pydantic schemas for request/response bodies.
 """
 
 from datetime import datetime
-from typing import Generic, List, Optional, TypeVar
+from typing import Any, Dict, Generic, List, Optional, TypeVar
 
 from pydantic import BaseModel, Field, EmailStr
 import uuid
@@ -86,9 +86,9 @@ class AnimalBase(BaseModel):
     lactation_number: Optional[int] = None
     pregnancy_status: Optional[str] = None
     previous_mastitis: Optional[bool] = None
-    disease_history: Optional[dict] = None
-    vaccination_history: Optional[dict] = None
-    treatment_history: Optional[dict] = None
+    disease_history: Optional[List[Dict[str, Any]]] = None
+    vaccination_history: Optional[List[Dict[str, Any]]] = None
+    treatment_history: Optional[List[Dict[str, Any]]] = None
     comorbidities: Optional[List[str]] = None
     status: Optional[str] = "active"
 
@@ -105,9 +105,9 @@ class AnimalUpdate(BaseModel):
     lactation_number: Optional[int] = None
     pregnancy_status: Optional[str] = None
     previous_mastitis: Optional[bool] = None
-    disease_history: Optional[dict] = None
-    vaccination_history: Optional[dict] = None
-    treatment_history: Optional[dict] = None
+    disease_history: Optional[List[Dict[str, Any]]] = None
+    vaccination_history: Optional[List[Dict[str, Any]]] = None
+    treatment_history: Optional[List[Dict[str, Any]]] = None
     comorbidities: Optional[List[str]] = None
     status: Optional[str] = None
 

@@ -13,9 +13,25 @@ apscheduler>=3.10.4
 pillow>=11.0.0
 httpx>=0.25.0
 
+# ML / AI Dependencies
+joblib>=1.3.0
+numpy>=1.26.0
+pandas>=2.1.0
+scikit-learn>=1.4.0
+xgboost>=2.0.0
+
+# Udder CV inference (YOLO models)
+# ultralytics requires torch; CPU-only install avoids large CUDA wheel on servers.
+# On GPU hosts, install torch+CUDA separately before installing ultralytics.
+ultralytics>=8.2.0
+
+# SHAP explanations for forecasting models (optional but recommended)
+shap>=0.45.0
+
 # Development Dependencies (optional)
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
+mongomock-motor>=0.0.35
 black==23.12.0
 ruff==0.1.11

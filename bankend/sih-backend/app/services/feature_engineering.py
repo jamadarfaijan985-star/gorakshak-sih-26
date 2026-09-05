@@ -5,6 +5,15 @@ Per PRD §8, the backend is responsible for:
 1. THI (Temperature Humidity Index) computation
 2. Rolling baseline per animal per metric
 3. Deviation score (z-score or % deviation from baseline)
+
+Extended for ML integration:
+4. extract_features_for_risk_engine() now also includes raw scalar lab values
+   (scc_value, milk_ec, milk_temp_c, milk_yield_l, milk_ph) so the ML
+   classification pipelines (gorakshak_cow_clinical_v2, gorakshak_buffalo_v2)
+   can pick them up via the feature-mapping layer in ml_risk_engine.py.
+5. extract_forecasting_features() is a thin wrapper around
+   forecast_engine.build_forecasting_features() — convenience entry point
+   for use from routes or scheduled tasks.
 """
 
 import math
@@ -19,17 +28,20 @@ from app.db.mongodb_utils import get_baseline, create_baseline
 def compute_thi(ambient_temp_c: float, relative_humidity: float) -> Optional[float]:
     """
     Compute Temperature Humidity Index (THI).
-    
-    Using the standard Thom formula (1959):
-    THI = T - 0.55*(1-RH) * (T - 14.5)
-    Where T = temperature in Celsius, RH = relative humidity (0-1)
+
+    Uses the livestock/NRC form, which produces the 0-100 THI scale used by
+    the risk engine thresholds. Relative humidity may be a fraction or a
+    percentage.
     """
     if ambient_temp_c is None or relative_humidity is None:
         return None
-    
-    rh_fraction = relative_humidity / 100.0 if relative_humidity > 1 else relative_humidity
-    
-    thi = ambient_temp_c - 0.55 * (1 - rh_fraction) * (ambient_temp_c - 14.5)
+
+    rh_percent = relative_humidity * 100 if relative_humidity <= 1 else relative_humidity
+    thi = (
+        1.8 * ambient_temp_c + 32
+        - (0.55 - 0.0055 * rh_percent)
+        * (1.8 * ambient_temp_c - 26.8)
+    )
     return round(thi, 2)
 
 
@@ -190,11 +202,15 @@ async def extract_features_for_risk_engine(
     manual_lab_data = None
     if manual_lab:
         manual_lab_data = {
-            "cmt_result": manual_lab.get("cmt_result"),
-            "scc_value": manual_lab.get("scc_value"),
-            "scc_unit": manual_lab.get("scc_unit"),
-            "milk_temp_c": manual_lab.get("milk_temp_c"),
-            "milk_ec": manual_lab.get("milk_ec"),
+            "cmt_result":   manual_lab.get("cmt_result"),
+            "scc_value":    manual_lab.get("scc_value"),
+            "scc_unit":     manual_lab.get("scc_unit"),
+            "milk_temp_c":  manual_lab.get("milk_temp_c"),
+            "milk_ec":      manual_lab.get("milk_ec"),
+            # Additional scalar fields consumed by the ML classification pipelines
+            "milk_yield_l":  manual_lab.get("milk_yield_l"),
+            "milk_ph":       manual_lab.get("milk_ph"),
+            "udder_temp_c":  manual_lab.get("udder_temp_c"),
         }
 
     # Fetch latest udder CV result
@@ -207,28 +223,68 @@ async def extract_features_for_risk_engine(
     if udder_image and udder_image.get("cv_result"):
         udder_cv_result = udder_image["cv_result"]
 
-    # Animal metadata
+    # Animal metadata — include scalar fields useful to classification pipelines
     animal_meta = {
-        "species": animal.get("species"),
-        "breed": animal.get("breed"),
-        "age_months": animal.get("age_months"),
-        "lactation_number": animal.get("lactation_number"),
+        "species":           animal.get("species"),
+        "breed":             animal.get("breed"),
+        "age_months":        animal.get("age_months"),
+        "lactation_number":  animal.get("lactation_number"),
         "previous_mastitis": animal.get("previous_mastitis"),
     }
 
     # Build feature dict for risk engine
     features = {
-        "animal_id": animal_id,
-        "window_start": window_start,
-        "window_end": window_end,
-        "activity_deviation": activity_deviation,
+        "animal_id":                    animal_id,
+        "window_start":                 window_start,
+        "window_end":                   window_end,
+        # Z-score deviations (used by RuleBasedRiskEngine + as ML features)
+        "activity_deviation":           activity_deviation,
         "rumination_inferred_deviation": rumination_deviation,
-        "surface_temp_deviation": surface_temp_deviation,
-        "thi_avg": thi_avg,
-        "thi_max": thi_max,
-        "manual_lab_data": manual_lab_data,
-        "udder_cv_result": udder_cv_result,
-        "animal_meta": animal_meta,
+        "surface_temp_deviation":       surface_temp_deviation,
+        # THI
+        "thi_avg":                      thi_avg,
+        "thi_max":                      thi_max,
+        # Sub-dicts passed through to MLRiskEngine feature mapper
+        "manual_lab_data":              manual_lab_data,
+        "udder_cv_result":              udder_cv_result,
+        "animal_meta":                  animal_meta,
     }
 
     return features
+
+
+# ---------------------------------------------------------------------------
+# Forecasting feature extraction (convenience wrapper)
+# ---------------------------------------------------------------------------
+
+async def extract_forecasting_features(
+    db: AsyncIOMotorDatabase,
+    animal_id: str,
+    lookback_days: int = 21,
+) -> Optional[Dict[str, Any]]:
+    """
+    Build the rolling-window feature dict used by the 7d/14d XGBoost
+    forecasting models.
+
+    This is a thin async wrapper around
+    forecast_engine.build_forecasting_features() that handles the MongoDB
+    queries so callers don't need to import forecast_engine directly.
+
+    Returns None if there is insufficient data.
+    """
+    # Imported here to avoid a circular import at module load time
+    from app.services.forecast_engine import build_forecasting_features  # noqa: PLC0415
+
+    window_start = datetime.utcnow() - timedelta(days=lookback_days)
+
+    sensor_rows = await db.sensor_readings.find(
+        {"animal_id": animal_id, "recorded_at": {"$gte": window_start}},
+        sort=[("recorded_at", 1)],
+    ).to_list(None)
+
+    lab_rows = await db.manual_lab_data.find(
+        {"animal_id": animal_id, "recorded_at": {"$gte": window_start}},
+        sort=[("recorded_at", 1)],
+    ).to_list(None)
+
+    return build_forecasting_features(sensor_rows, lab_rows)
