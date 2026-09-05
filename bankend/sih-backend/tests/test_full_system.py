@@ -802,6 +802,7 @@ def auth_headers_and_ids(test_client):
         "email": "admin@gorakshak.example",
         "password": "TestPass123!",
         "role": "admin",
+        "phone": "+15551234567",
     })
     assert reg_resp.status_code in (200, 400), f"Register failed: {reg_resp.text}"
 
@@ -980,6 +981,7 @@ class TestIngestEndpoints:
         body = resp.json()
         assert body["created"] == 5
         assert body["animal_id"] == cow_id
+        assert body["sms_alert_sent"] is False
 
     def test_ingest_sensor_thi_computed(self, test_client, auth_headers_and_ids):
         """Verify THI is computed and stored alongside sensor data."""
@@ -1002,6 +1004,31 @@ class TestIngestEndpoints:
         )
         assert reading is not None, "THI not computed/stored in sensor reading"
         assert reading["thi"] > 0
+
+    def test_ingest_sensor_sends_sms_for_high_thi(
+        self, test_client, auth_headers_and_ids
+    ):
+        from app.api.v1 import routes_ingest
+
+        client, _ = test_client
+        headers, _, cow_id, _ = auth_headers_and_ids
+        with patch.object(routes_ingest, "send_sms", new_callable=AsyncMock) as send_sms_mock:
+            send_sms_mock.return_value = True
+            resp = client.post("/api/v1/ingest/sensor", json={
+                "animal_id": cow_id,
+                "source": "test_collar",
+                "readings": [{
+                    "recorded_at": datetime.utcnow().isoformat(),
+                    "ambient_temp_c": 30.0,
+                    "relative_humidity": 80.0,
+                }],
+            }, headers=headers)
+
+        assert resp.status_code == 200
+        assert resp.json()["sms_alert_sent"] is True
+        send_sms_mock.assert_awaited_once()
+        assert send_sms_mock.await_args.args[0] == "+15551234567"
+        assert "THI" in send_sms_mock.await_args.args[1]
 
     def test_ingest_manual_lab_data(self, test_client, auth_headers_and_ids):
         client, _ = test_client

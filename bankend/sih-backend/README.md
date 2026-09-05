@@ -407,7 +407,7 @@ Edit `.env` to customize:
 
 ```env
 # Database
-DATABASE_URL=postgresql+asyncpg://user:password@localhost:5432/bovine_mastitis
+DATABASE_URL=mongodb://admin:password@localhost:27017/bovine_mastitis?authSource=admin
 
 # Security (change in production!)
 SECRET_KEY=your-secret-key-min-32-chars
@@ -419,7 +419,18 @@ CORS_ORIGINS=["*"]
 
 # File storage
 MEDIA_DIR=./media
+
+# Optional heat-stress SMS alerts (Twilio)
+SMS_ENABLED=false
+SMS_THI_THRESHOLD=68
+TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
+TWILIO_AUTH_TOKEN=your-twilio-auth-token
+TWILIO_FROM_NUMBER=+15550000000
 ```
+
+When `SMS_ENABLED=true`, a sensor batch containing a THI at or above
+`SMS_THI_THRESHOLD` sends one SMS to the authenticated user's `phone` number.
+SMS delivery failures do not reject the sensor ingestion request.
 
 ## Testing
 

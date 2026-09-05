@@ -56,6 +56,13 @@ class Settings(BaseSettings):
     # Set UDDER_CV_ENABLED=false in .env if you want to skip CV on low-resource hosts.
     UDDER_CV_ENABLED: bool = True
 
+    # SMS heat-stress alerts. Twilio credentials are required when enabled.
+    SMS_ENABLED: bool = False
+    SMS_THI_THRESHOLD: float = 68.0
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_FROM_NUMBER: str = ""
+
     class Config:
         case_sensitive = True
         env_file = ".env"

@@ -22,6 +22,7 @@ from app.db.mongodb_utils import (
     normalise_doc,
 )
 from app.services.feature_engineering import compute_thi, update_animal_baselines
+from app.services.sms_alerting import heat_stress_message, send_sms
 from app.services.udder_cv_service import run_udder_cv
 from app.schemas.schemas import (
     BatchSensorReadingIngest,
@@ -112,12 +113,20 @@ async def ingest_sensor_data(
     animal_id = animal["id"]  # already normalised by get_animal_by_id
     created_count = 0
     errors = []
+    heat_stress_reading = None
 
     for reading_input in request.readings:
         try:
             thi = None
             if reading_input.ambient_temp_c is not None and reading_input.relative_humidity is not None:
                 thi = compute_thi(reading_input.ambient_temp_c, reading_input.relative_humidity)
+                if thi is not None and thi >= settings.SMS_THI_THRESHOLD:
+                    if heat_stress_reading is None or thi > heat_stress_reading["thi"]:
+                        heat_stress_reading = {
+                            "thi": thi,
+                            "ambient_temp_c": reading_input.ambient_temp_c,
+                            "relative_humidity": reading_input.relative_humidity,
+                        }
 
             reading_data = {
                 "_id": str(_uuid.uuid4()),
@@ -143,11 +152,24 @@ async def ingest_sensor_data(
     except Exception as exc:
         errors.append({"operation": "baseline_update", "error": str(exc)})
 
+    sms_alert_sent = False
+    if heat_stress_reading:
+        sms_alert_sent = await send_sms(
+            current_user.get("phone"),
+            heat_stress_message(
+                animal.get("tag_id", animal_id),
+                heat_stress_reading["thi"],
+                heat_stress_reading["ambient_temp_c"],
+                heat_stress_reading["relative_humidity"],
+            ),
+        )
+
     return {
         "created": created_count,
         "total": len(request.readings),
         "errors": errors,
         "animal_id": animal_id,
+        "sms_alert_sent": sms_alert_sent,
     }
 
 
