@@ -11,6 +11,7 @@ import uuid as _uuid
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
+from pydantic import BaseModel
 
 from app.core.config import settings
 from app.db.session import get_db
@@ -34,6 +35,34 @@ from app.api.v1.deps import get_current_user, require_animal_farm_access
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
+
+
+# ---------------------------------------------------------------------------
+# ESP8266 / Hardware device schema
+# ---------------------------------------------------------------------------
+
+class ESP8266SensorPayload(BaseModel):
+    """
+    Flat JSON payload sent directly by the ESP8266 collar firmware.
+
+    Field mapping  →  internal schema
+    ----------------------------------
+    cow_id              →  tag_id  (resolved to animal_id via DB lookup)
+    body_temperature    →  surface_temp_c   (DS18B20 on-collar probe)
+    ambient_temperature →  ambient_temp_c   (SHT31-D)
+    humidity            →  relative_humidity (SHT31-D, %)
+    activity            →  activity_raw     (MPU6050 magnitude, float)
+    mic_average         →  audio_features.mic_average  (MAX9814)
+    mic_peak_peak       →  audio_features.mic_peak_peak
+    """
+    cow_id: str
+    body_temperature: Optional[float] = None
+    ambient_temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    activity: Optional[float] = None
+    mic_average: Optional[float] = None
+    mic_peak_peak: Optional[float] = None
+    timestamp: Optional[str] = None
 
 
 @router.post("/sensor")
@@ -237,6 +266,122 @@ async def upload_udder_image(
     await db.udder_images.insert_one(image_data)
 
     return UdderImageResponse(**normalise_doc(image_data))
+
+
+
+# ---------------------------------------------------------------------------
+# ESP8266 / Hardware device endpoint
+# ---------------------------------------------------------------------------
+
+
+@router.post("/esp8266")
+async def ingest_esp8266(
+    payload: ESP8266SensorPayload,
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Single-reading ingest from an ESP8266 collar device.
+
+    **Authentication**: None required — devices POST directly.
+    The cow_id (tag_id) must already exist in the database.
+
+    Field mapping from ESP8266 firmware → internal sensor schema:
+    - body_temperature   → surface_temp_c
+    - ambient_temperature → ambient_temp_c
+    - humidity           → relative_humidity
+    - activity           → activity_raw
+    - mic_average / mic_peak_peak → stored in audio_features{}
+
+    THI is computed automatically.
+    Baselines are updated automatically.
+    Call POST /api/v1/risk/compute with the animal_id afterwards to
+    run the ML risk engine on the freshly stored reading.
+    """
+    # Resolve animal by tag_id (cow_id from firmware)
+    animal = await get_animal_by_tag(db, payload.cow_id)
+    if not animal:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Animal with tag_id '{payload.cow_id}' not found. "
+                   "Register the animal in the system before sending data.",
+        )
+
+    animal_id = animal["id"]
+
+    # Determine recorded_at — use device timestamp if supplied, else server time
+    if payload.timestamp:
+        try:
+            recorded_at = datetime.fromisoformat(payload.timestamp)
+        except ValueError:
+            recorded_at = datetime.utcnow()
+    else:
+        recorded_at = datetime.utcnow()
+
+    # Compute THI from ambient temp + humidity
+    thi = None
+    if payload.ambient_temperature is not None and payload.humidity is not None:
+        thi = compute_thi(payload.ambient_temperature, payload.humidity)
+
+    # Pack microphone channels into the audio_features dict
+    audio_features = {}
+    if payload.mic_average is not None:
+        audio_features["mic_average"] = payload.mic_average
+    if payload.mic_peak_peak is not None:
+        audio_features["mic_peak_peak"] = payload.mic_peak_peak
+
+    reading_data = {
+        "_id": str(_uuid.uuid4()),
+        "animal_id": animal_id,
+        "recorded_at": recorded_at,
+        "received_at": datetime.utcnow(),
+        "surface_temp_c": payload.body_temperature,
+        "ambient_temp_c": payload.ambient_temperature,
+        "relative_humidity": payload.humidity,
+        "activity_raw": payload.activity,
+        "audio_features": audio_features or None,
+        "rumination_inferred_min": None,    # inferred by ML pipeline later
+        "thi": thi,
+        "source": "esp8266_collar",
+    }
+
+    reading_id = await create_sensor_reading(db, reading_data)
+
+    # Update per-animal rolling baselines (7-day window)
+    try:
+        await update_animal_baselines(db, animal_id, window_days=7)
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Baseline update failed for %s: %s", animal_id, exc)
+
+    # Check for heat-stress SMS alert
+    sms_alert_sent = False
+    if thi is not None and thi >= settings.SMS_THI_THRESHOLD:
+        sms_alert_sent = await send_sms(
+            None,  # no user phone at device level — handled by SMS service config
+            heat_stress_message(
+                payload.cow_id, thi,
+                payload.ambient_temperature,
+                payload.humidity,
+            ),
+        )
+
+    return {
+        "status": "ok",
+        "reading_id": reading_id,
+        "animal_id": animal_id,
+        "tag_id": payload.cow_id,
+        "species": animal.get("species"),
+        "stored": {
+            "surface_temp_c": payload.body_temperature,
+            "ambient_temp_c": payload.ambient_temperature,
+            "relative_humidity": payload.humidity,
+            "activity_raw": payload.activity,
+            "thi": thi,
+            "audio_features": audio_features or None,
+        },
+        "baselines_updated": True,
+        "sms_alert_sent": sms_alert_sent,
+        "next_step": f"POST /api/v1/risk/compute with {{\"animal_id\": \"{animal_id}\"}} to run ML prediction",
+    }
 
 
 @router.get("/udder-image/{image_id}", response_model=UdderImageResponse)
