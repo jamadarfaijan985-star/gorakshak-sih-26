@@ -23,7 +23,7 @@ async def init_db():
     db = client.get_database()
     # Verify connection
     await db.command("ping")
-    print("✓ Connected to MongoDB")
+    print("[OK] Connected to MongoDB")
 
 
 async def close_db():
@@ -31,4 +31,4 @@ async def close_db():
     global client
     if client:
         client.close()
-        print("✓ Closed MongoDB connection")
+        print("[OK] Closed MongoDB connection")

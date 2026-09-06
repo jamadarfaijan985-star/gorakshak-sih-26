@@ -1,8 +1,10 @@
 import { useCallback } from 'react';
 import { useApi } from './useApi';
 import { animalApiService, type AnimalListParams } from '../services/animalApiService';
+import { riskApiService } from '../services/riskApiService';
 import type {
   AnimalResponse,
+  ForecastResponse,
   SensorReadingResponse,
   RiskScoreResponse,
   ListResponse,
@@ -57,4 +59,18 @@ export function useRiskHistory(animalId: string | undefined, limit = 20) {
     return animalApiService.getRiskHistory(animalId, 0, limit);
   }, [animalId, limit]);
   return useApi<ListResponse<RiskScoreResponse>>(fetcher, !!animalId);
+}
+
+/**
+ * 7d/14d XGBoost forecast for an animal.
+ * Only fires when animalId is provided and DEMO_MODE is off.
+ * Returns null data gracefully when models are not loaded (503) or
+ * data is insufficient (422) — these are expected states.
+ */
+export function useForecast(animalId: string | undefined) {
+  const fetcher = useCallback(() => {
+    if (!animalId) return Promise.reject(new Error('No animal ID'));
+    return riskApiService.forecast(animalId, true);
+  }, [animalId]);
+  return useApi<ForecastResponse>(fetcher, !!animalId);
 }

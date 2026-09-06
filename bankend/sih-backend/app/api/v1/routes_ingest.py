@@ -36,57 +36,6 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/ingest", tags=["ingest"])
 
 
-async def _run_cv_and_update(
-    db: AsyncIOMotorDatabase,
-    image_id: str,
-    image_path: str,
-    species: str,
-) -> None:
-    """
-    Background task: run YOLO inference and write cv_result back to MongoDB.
-
-    Runs in an executor so the blocking ultralytics call doesn't stall the
-    event loop.  Any failure is logged but never propagated to the client —
-    the image record already exists; CV is best-effort.
-    """
-    try:
-        loop = asyncio.get_event_loop()
-        cv_result = await loop.run_in_executor(
-            None,                    # default ThreadPoolExecutor
-            run_udder_cv,            # blocking function
-            image_path,
-            species,
-        )
-
-        if cv_result is None:
-            logger.warning(
-                "Udder CV returned no result for image_id=%s (species=%s)",
-                image_id, species,
-            )
-            return
-
-        model_version = cv_result.pop("model_version", None)
-        # Remove non-schema debug keys before storing
-        cv_result.pop("raw_label", None)
-        cv_result.pop("detections", None)
-
-        await db.udder_images.update_one(
-            {"_id": image_id},
-            {"$set": {
-                "cv_result":          cv_result,
-                "cv_model_version":   model_version,
-            }},
-        )
-        logger.info(
-            "Udder CV complete for image_id=%s model=%s", image_id, model_version
-        )
-
-    except Exception as exc:  # noqa: BLE001
-        logger.warning(
-            "Udder CV background task failed for image_id=%s: %s", image_id, exc
-        )
-
-
 @router.post("/sensor")
 async def ingest_sensor_data(
     request: BatchSensorReadingIngest,
@@ -221,6 +170,10 @@ async def upload_udder_image(
 ):
     """
     Upload an udder image (multipart/form-data).
+
+    YOLO inference runs synchronously before the response is returned so the
+    caller always receives a populated cv_result (not null).  The inference
+    takes ~0.5-2 s on CPU; acceptable for a single upload action.
     Caller must have access to the farm that owns the animal.
     """
     await require_animal_farm_access(animal_id, current_user, db)
@@ -240,19 +193,7 @@ async def upload_udder_image(
             detail=f"Failed to save file: {exc}",
         )
 
-    image_data = {
-        "_id": str(_uuid.uuid4()),
-        "animal_id": animal_id,
-        "captured_at": datetime.fromisoformat(captured_at),
-        "image_url": f"/media/{filename}",
-        "cv_result": None,
-        "cv_model_version": None,
-        "reviewed_by_vet": None,
-        "created_at": datetime.utcnow(),
-    }
-    await db.udder_images.insert_one(image_data)
-
-    # Resolve species for model routing (non-blocking; best-effort)
+    # Resolve species for model routing
     species = "cow"
     try:
         animal = await get_animal_by_id(db, animal_id)
@@ -261,17 +202,58 @@ async def upload_udder_image(
     except Exception:  # noqa: BLE001
         pass
 
-    # Fire-and-forget CV inference if enabled
+    # Run YOLO inference synchronously in a thread executor so we don't block
+    # the event loop, but we DO await the result before responding.
+    cv_result_raw = None
+    model_version = None
     if settings.UDDER_CV_ENABLED:
-        asyncio.create_task(
-            _run_cv_and_update(
-                db,
-                image_data["_id"],
-                file_path,
-                species,
+        try:
+            loop = asyncio.get_event_loop()
+            cv_result_raw = await loop.run_in_executor(
+                None, run_udder_cv, file_path, species
             )
-        )
-    else:
-        logger.debug("UDDER_CV_ENABLED=false — skipping CV inference for %s", filename)
+            if cv_result_raw is not None:
+                model_version = cv_result_raw.pop("model_version", None)
+                cv_result_raw.pop("raw_label", None)
+                cv_result_raw.pop("detections", None)
+                logger.info(
+                    "Udder CV complete synchronously: species=%s model=%s",
+                    species, model_version,
+                )
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("Udder CV inference failed: %s", exc)
+            cv_result_raw = None
+
+    image_data = {
+        "_id": str(_uuid.uuid4()),
+        "animal_id": animal_id,
+        "captured_at": datetime.fromisoformat(captured_at),
+        "image_url": f"/media/{filename}",
+        "cv_result": cv_result_raw,
+        "cv_model_version": model_version,
+        "reviewed_by_vet": None,
+        "created_at": datetime.utcnow(),
+    }
+    await db.udder_images.insert_one(image_data)
 
     return UdderImageResponse(**normalise_doc(image_data))
+
+
+@router.get("/udder-image/{image_id}", response_model=UdderImageResponse)
+async def get_udder_image(
+    image_id: str,
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    Fetch a stored udder image record by ID (includes cv_result once available).
+    Useful for polling after an async CV job.
+    """
+    doc = await db.udder_images.find_one({"_id": image_id})
+    if not doc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Udder image record not found",
+        )
+    await require_animal_farm_access(doc["animal_id"], current_user, db)
+    return UdderImageResponse(**normalise_doc(doc))

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
-import { useAnimal, useSensorHistory, useCurrentRisk, useRiskHistory } from '../hooks/useAnimals';
+import { useAnimal, useSensorHistory, useCurrentRisk, useRiskHistory, useForecast } from '../hooks/useAnimals';
 import { animalService } from '../services/animalService';
 import { milkService } from '../services/milkService';
 import { cmtService } from '../services/cmtService';
@@ -61,6 +61,8 @@ export const AnimalDetails: React.FC = () => {
     isLive ? id : undefined,
   );
   const { data: riskHistoryPage } = useRiskHistory(isLive ? id : undefined, 10);
+  // 7d/14d XGBoost forecast — only in live mode; 503/422 responses are graceful
+  const { data: forecastData, isLoading: forecastLoading } = useForecast(isLive ? id : undefined);
 
   // ── Demo data ──────────────────────────────────────────────────────────────
   const demoAnimal = !isLive && id ? animalService.getById(id) : undefined;
@@ -254,6 +256,8 @@ export const AnimalDetails: React.FC = () => {
             <AIHealthSignals
               riskScore={currentRisk ?? null}
               riskLoading={riskLoading}
+              forecastData={forecastData ?? null}
+              forecastLoading={forecastLoading}
               udderResult={null}
               behaviorData={null}
               onComputeRisk={handleComputeRisk}

@@ -34,7 +34,7 @@ class Settings(BaseSettings):
     CORS_ORIGINS: List[str] = ["*"]
 
     # File storage
-    MEDIA_DIR: str = "/media"
+    MEDIA_DIR: str = str(_BACKEND_ROOT / "media")
 
     # ML Model directory — absolute path to the /models folder in the repo root.
     # Override via env var MODEL_DIR if the models live elsewhere (e.g. Docker volume).

@@ -232,6 +232,35 @@ export interface RiskComputeRequest {
   animal_id?: string;
 }
 
+// ─── Forecast (POST /api/v1/risk/forecast/{animal_id}) ────────────────────────
+
+export interface ForecastHorizonResult {
+  risk_7d: number;
+  risk_7d_percent: number;
+  risk_7d_level: 'VERY_LOW' | 'LOW' | 'MODERATE' | 'HIGH';
+  risk_14d: number;
+  risk_14d_percent: number;
+  risk_14d_level: 'VERY_LOW' | 'LOW' | 'MODERATE' | 'HIGH';
+  overall: number;
+  overall_level: 'VERY_LOW' | 'LOW' | 'MODERATE' | 'HIGH';
+}
+
+export interface ForecastResponse {
+  animal_id: string;
+  tag_id?: string | null;
+  species?: string | null;
+  computed_at: string;
+  model_status: {
+    forecast_7d: 'AVAILABLE' | 'UNAVAILABLE';
+    forecast_14d: 'AVAILABLE' | 'UNAVAILABLE';
+  };
+  forecast: ForecastHorizonResult;
+  explanations: string[];
+  recommendation: string;
+  features_used: number;
+  data_disclaimer: string;
+}
+
 // ─── Alerts ──────────────────────────────────────────────────────────────────
 
 export interface AlertResponse {

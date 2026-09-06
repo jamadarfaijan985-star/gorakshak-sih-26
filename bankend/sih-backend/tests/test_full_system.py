@@ -504,12 +504,10 @@ class TestForecastEngine:
         labs    = [self._make_lab_row(d)    for d in range(14)]
 
         mock_db = MagicMock()
-        mock_db.sensor_readings.find.return_value.sort = MagicMock(
-            return_value=MagicMock(to_list=AsyncMock(return_value=sensors))
-        )
-        mock_db.manual_lab_data.find.return_value.sort = MagicMock(
-            return_value=MagicMock(to_list=AsyncMock(return_value=labs))
-        )
+        # forecast_engine calls .find(query, sort=[...]).to_list(None)
+        # so the return value of .find() must have a directly-awaitable .to_list()
+        mock_db.sensor_readings.find.return_value.to_list = AsyncMock(return_value=sensors)
+        mock_db.manual_lab_data.find.return_value.to_list  = AsyncMock(return_value=labs)
 
         result = await forecast_for_animal(mock_db, "test_animal", include_shap=False)
 

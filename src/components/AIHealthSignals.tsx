@@ -32,7 +32,7 @@ import {
 } from 'lucide-react';
 import { useApp } from '../context/AppContext';
 import { BehaviorSignalCard, BehaviorSignalData } from './BehaviorSignalCard';
-import type { RiskScoreResponse, UdderImageResponse } from '../types/api';
+import type { ForecastResponse, RiskScoreResponse, UdderImageResponse } from '../types/api';
 
 // ---------------------------------------------------------------------------
 // Model 1 signal helpers
@@ -136,6 +136,14 @@ interface Props {
   udderResult?: UdderImageResponse | null;
   /** Model 3 behavior signal data — null means backend endpoint not yet available */
   behaviorData?: BehaviorSignalData | null;
+  /**
+   * XGBoost 7d/14d forecast from POST /api/v1/risk/forecast/{animal_id}.
+   * null  = not yet fetched or insufficient data (expected state, not an error)
+   * undefined = loading
+   */
+  forecastData?: ForecastResponse | null;
+  /** True while forecast is loading */
+  forecastLoading?: boolean;
   /** Called when user clicks "Recompute Risk" */
   onComputeRisk?: () => void;
   computingRisk?: boolean;
@@ -150,30 +158,41 @@ export const AIHealthSignals: React.FC<Props> = ({
   riskLoading,
   udderResult,
   behaviorData,
+  forecastData,
+  forecastLoading,
   onComputeRisk,
   computingRisk,
 }) => {
   const { t } = useApp();
 
-  // Derive signal states from risk score
-  // Per PRD: is_forecast=false → current screening. is_forecast=true → forward prediction.
-  // The current rule engine always sets is_forecast=false (current screening, not 7d/14d XGBoost).
-  // We show it under "Current Screening Signal" until the XGBoost models are integrated.
+  // ── Screening signal (rule-based / ML classification engine) ──────────────
   const screeningSignal: SignalState = riskScore
     ? riskLevelToSignal(riskScore.risk_level)
     : riskLoading
     ? 'pending'
     : 'insufficient';
 
-  // When is_forecast becomes true and forecast_horizon_days == 7 or 14, we'll
-  // split into 7d/14d signals. For now, show current screening in both placeholders.
-  const signal7d: SignalState = riskScore?.is_forecast && riskScore.forecast_horizon_days === 7
-    ? riskLevelToSignal(riskScore.risk_level)
-    : 'pending';  // XGBoost 7d model not yet integrated
+  // ── 7d / 14d forecast signals (XGBoost gorakshak_forecast_*_xgb_v2) ───────
+  // Map backend VERY_LOW/LOW/MODERATE/HIGH → frontend SignalState
+  function forecastLevelToSignal(level?: string | null): SignalState {
+    if (!level) return 'pending';
+    const l = level.toUpperCase();
+    if (l === 'HIGH' || l === 'MODERATE') return 'elevated';
+    if (l === 'LOW' || l === 'VERY_LOW') return 'below_threshold';
+    return 'pending';
+  }
 
-  const signal14d: SignalState = riskScore?.is_forecast && riskScore.forecast_horizon_days === 14
-    ? riskLevelToSignal(riskScore.risk_level)
-    : 'pending'; // XGBoost 14d model not yet integrated
+  const signal7d: SignalState = forecastLoading
+    ? 'pending'
+    : forecastData?.forecast
+    ? forecastLevelToSignal(forecastData.forecast.risk_7d_level)
+    : 'insufficient';
+
+  const signal14d: SignalState = forecastLoading
+    ? 'pending'
+    : forecastData?.forecast
+    ? forecastLevelToSignal(forecastData.forecast.risk_14d_level)
+    : 'insufficient';
 
   return (
     <div className="space-y-3">
@@ -272,7 +291,7 @@ export const AIHealthSignals: React.FC<Props> = ({
           )}
         </div>
 
-        {/* 7-day and 14-day forecast placeholders */}
+        {/* 7-day and 14-day forecast */}
         <div className="pt-2 border-t border-[#D9CFC7]/60 space-y-2">
           <div className="text-[10px] font-bold text-[#746E68] uppercase tracking-wide">
             {t.temporalForecastingSignals}
@@ -283,20 +302,64 @@ export const AIHealthSignals: React.FC<Props> = ({
                 {t.model1Signal7d}
               </div>
               <SignalChip state={signal7d} />
-              <div className="text-[9px] text-[#746E68]">
-                {t.notYetIntegrated7d}
-              </div>
+              {forecastData?.forecast ? (
+                <div className="text-[10px] text-[#403129] font-mono font-bold">
+                  {forecastData.forecast.risk_7d_percent.toFixed(1)}%
+                </div>
+              ) : (
+                <div className="text-[9px] text-[#746E68]">
+                  {forecastLoading ? 'Loading…' : t.notYetIntegrated7d}
+                </div>
+              )}
             </div>
             <div className="p-3 rounded-lg border border-[#D9CFC7] bg-[#F9F8F6] space-y-1.5">
               <div className="text-[10px] text-[#746E68] font-semibold">
                 {t.model1Signal14d}
               </div>
               <SignalChip state={signal14d} />
-              <div className="text-[9px] text-[#746E68]">
-                {t.notYetIntegrated14d}
-              </div>
+              {forecastData?.forecast ? (
+                <div className="text-[10px] text-[#403129] font-mono font-bold">
+                  {forecastData.forecast.risk_14d_percent.toFixed(1)}%
+                </div>
+              ) : (
+                <div className="text-[9px] text-[#746E68]">
+                  {forecastLoading ? 'Loading…' : t.notYetIntegrated14d}
+                </div>
+              )}
             </div>
           </div>
+
+          {/* SHAP explanations + recommendation when available */}
+          {forecastData && forecastData.explanations.length > 0 && (
+            <div className="p-3 rounded-lg bg-[#F9F8F6] border border-[#D9CFC7] space-y-1.5">
+              <div className="text-[10px] font-bold text-[#8A5B3D] uppercase tracking-wide">
+                {t.contributingFactorsLabel}
+              </div>
+              {forecastData.explanations.map((exp, i) => (
+                <div key={i} className="flex items-start gap-2 text-[10px] text-[#403129]">
+                  <AlertTriangle className="w-3 h-3 text-amber-600 shrink-0 mt-0.5" />
+                  <span>{exp}</span>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {forecastData?.recommendation && (
+            <div className="p-3 rounded-lg bg-[#EFE9E3]/70 border border-[#D9CFC7]">
+              <div className="text-[10px] font-bold text-[#403129] uppercase tracking-wide mb-1">
+                {t.recommendedActionLabel}
+              </div>
+              <p className="text-[10px] text-[#403129] leading-relaxed">
+                {forecastData.recommendation}
+              </p>
+            </div>
+          )}
+
+          {forecastData && (
+            <div className="text-[9px] text-[#746E68] leading-tight italic">
+              {forecastData.data_disclaimer}
+            </div>
+          )}
         </div>
 
         {/* Window info */}

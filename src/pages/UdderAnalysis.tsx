@@ -86,9 +86,15 @@ export const UdderAnalysis: React.FC = () => {
     try {
       if (isLive && imageFile) {
         const capturedAt = new Date().toISOString();
+        // YOLO inference now runs synchronously on the backend —
+        // the response already contains cv_result when it arrives.
         const result = await ingestService.uploadUdderImage(selectedAnimalId, capturedAt, imageFile);
         setLiveResult(result);
-        showToast(t.toastUdderUploaded, 'success');
+        if (result.cv_result) {
+          showToast(t.toastUdderAssessed, 'success');
+        } else {
+          showToast(t.toastUdderUploaded, 'success');
+        }
       } else {
         const result = await udderService.analyzeImage(imagePreview!, selectedAnimalId);
         setDemoResult(result);
@@ -230,7 +236,7 @@ export const UdderAnalysis: React.FC = () => {
             }`}
           >
             {isAnalyzing ? (
-              <><Loader2 className="w-4 h-4 animate-spin" /><span>{isLive ? t.uploadingToBackend : t.runningCvModel}</span></>
+              <><Loader2 className="w-4 h-4 animate-spin" /><span>{isLive ? t.runningCvModel : t.runningCvModel}</span></>
             ) : (
               <><Sparkles className="w-4 h-4" /><span>{isLive ? t.uploadUdderImageBtn : t.analyzeUdderImageBtn}</span></>
             )}
@@ -247,6 +253,7 @@ export const UdderAnalysis: React.FC = () => {
           {/* Live result */}
           {isLive && liveResult && (
             <div className="space-y-4 text-xs">
+              {/* Upload success banner */}
               <div className="p-4 bg-emerald-50 border border-emerald-200 rounded-xl flex items-center gap-3">
                 <CheckCircle2 className="w-5 h-5 text-emerald-600" />
                 <div>
@@ -257,31 +264,50 @@ export const UdderAnalysis: React.FC = () => {
                 </div>
               </div>
 
+              {/* CV result */}
               <div className="p-4 rounded-xl bg-[#F9F8F6] border border-[#D9CFC7]">
-                <div className="font-bold text-xs text-[#403129] mb-2 uppercase tracking-wide">{t.supportiveVisualAssessment}</div>
+                <div className="flex items-center justify-between mb-3">
+                  <div className="font-bold text-xs text-[#403129] uppercase tracking-wide">{t.supportiveVisualAssessment}</div>
+                  {liveResult.cv_result?.confidence != null && (
+                    <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#8A5B3D]/10 text-[#8A5B3D]">
+                      {t.cvConfidence}: {(liveResult.cv_result.confidence * 100).toFixed(0)}%
+                    </span>
+                  )}
+                  {liveResult.cv_model_version && (
+                    <span className="text-[9px] text-[#746E68] font-mono ml-1">{liveResult.cv_model_version}</span>
+                  )}
+                </div>
 
                 {liveResult.cv_result ? (
-                  <div className="grid grid-cols-3 gap-2 text-center">
+                  <div className="grid grid-cols-2 sm:grid-cols-3 gap-2 text-center">
                     {([
-                      [t.possibleSwelling, liveResult.cv_result.swelling],
-                      [t.visibleAsymmetry, liveResult.cv_result.asymmetry],
-                      [t.possibleRedness, liveResult.cv_result.redness],
-                      [t.cvLesions, liveResult.cv_result.lesions],
-                      [t.cvDischarge, liveResult.cv_result.discharge],
-                      [t.cvConfidence, liveResult.cv_result.confidence],
-                    ] as [string, number | null | undefined][]).map(([label, val]) => (
-                      <div key={label} className="p-2 rounded-xl bg-white border border-[#D9CFC7]">
-                        <div className="text-[10px] text-[#746E68]">{label}</div>
-                        <div className="font-bold text-[#403129]">
-                          {val != null ? `${(val * 100).toFixed(0)}%` : '—'}
+                      [t.possibleSwelling,  liveResult.cv_result.swelling],
+                      [t.possibleRedness,   liveResult.cv_result.redness],
+                      [t.visibleAsymmetry,  liveResult.cv_result.asymmetry],
+                      [t.cvLesions,         liveResult.cv_result.lesions],
+                      [t.cvDischarge,       liveResult.cv_result.discharge],
+                      [t.cvConfidence,      liveResult.cv_result.confidence],
+                    ] as [string, number | null | undefined][]).map(([label, val]) => {
+                      const pct = val != null ? Math.round(val * 100) : null;
+                      const isHigh = pct != null && pct >= 50;
+                      return (
+                        <div
+                          key={label as string}
+                          className={`p-2 rounded-xl border ${isHigh ? 'border-amber-300 bg-amber-50' : 'border-[#D9CFC7] bg-white'}`}
+                        >
+                          <div className="text-[10px] text-[#746E68]">{label as string}</div>
+                          <div className={`font-bold mt-0.5 ${isHigh ? 'text-amber-700' : 'text-[#403129]'}`}>
+                            {pct != null ? `${pct}%` : '—'}
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="py-4 text-center text-[#746E68]">
-                    <p className="font-medium">{t.signalPending}</p>
-                    <p className="text-[11px] mt-1">{t.cvAnalysisPendingDesc}</p>
+                    <AlertTriangle className="w-5 h-5 mx-auto mb-1 opacity-40" />
+                    <p className="font-medium text-xs">CV model could not process this image</p>
+                    <p className="text-[11px] mt-1">Ensure ultralytics is installed and the image is a valid JPEG/PNG.</p>
                   </div>
                 )}
               </div>

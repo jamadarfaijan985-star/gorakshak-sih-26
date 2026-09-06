@@ -9,6 +9,7 @@ import { apiClient } from './api';
 import type {
   AlertResponse,
   AlertUpdate,
+  ForecastResponse,
   ListResponse,
   RiskComputeRequest,
 } from '../types/api';
@@ -51,5 +52,18 @@ export const riskApiService = {
   /** Acknowledge / resolve / mark false-positive an alert */
   async updateAlert(alertId: string, update: AlertUpdate): Promise<AlertResponse> {
     return apiClient.patch<AlertResponse>(`/api/v1/risk/alerts/${alertId}`, update);
+  },
+
+  /**
+   * POST /api/v1/risk/forecast/{animal_id}
+   * Run the 7-day and 14-day XGBoost mastitis forecasting models.
+   * Returns 503 if models are not loaded, 422 if insufficient data.
+   */
+  async forecast(animalId: string, includeShap = true): Promise<ForecastResponse> {
+    return apiClient.post<ForecastResponse>(
+      `/api/v1/risk/forecast/${animalId}`,
+      undefined,
+      { params: { include_shap: includeShap } },
+    );
   },
 };
