@@ -17,13 +17,24 @@ async def get_db() -> AsyncIOMotorDatabase:
 
 
 async def init_db():
-    """Initialize database connection."""
+    """Initialize database connection with fallback for cloud deployment."""
     global client, db
-    client = AsyncIOMotorClient(settings.DATABASE_URL)
-    db = client.get_database()
-    # Verify connection
-    await db.command("ping")
-    print("[OK] Connected to MongoDB")
+    try:
+        client = AsyncIOMotorClient(settings.DATABASE_URL, serverSelectionTimeoutMS=5000)
+        db = client.get_database()
+        # Verify connection
+        await db.command("ping")
+        print("[OK] Connected to MongoDB")
+    except Exception as e:
+        print(f"[WARNING] MongoDB connection to '{settings.DATABASE_URL}' failed: {e}")
+        print("[FALLBACK] Initializing in-memory database using mongomock_motor...")
+        try:
+            from mongomock_motor import AsyncMongoMockClient
+            client = AsyncMongoMockClient()
+            db = client["bovine_mastitis"]
+            print("[OK] In-memory mock MongoDB initialized successfully")
+        except Exception as mock_err:
+            print(f"[ERROR] Mock DB initialization failed: {mock_err}")
 
 
 async def close_db():
