@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: gorakshak-backend
+    env: python
+    rootDir: bankend/sih-backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PORT
+        value: 10000
+      - key: YOLO_CONFIG_DIR
+        value: /tmp/Ultralytics
