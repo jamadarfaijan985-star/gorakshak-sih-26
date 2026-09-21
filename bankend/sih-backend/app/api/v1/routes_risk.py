@@ -39,6 +39,7 @@ from app.services.ml_risk_engine import MLRiskEngine
 from app.services.forecast_engine import forecast_for_animal
 from app.services.model_loader import model_status as get_model_status
 from app.services.alerting import should_generate_alert, resolve_alerts_for_animal
+from app.services.sms_alerting import risk_alert_message, send_alert_sms
 from app.schemas.schemas import (
     RiskComputeRequest,
     RiskEngineInputSchema,
@@ -141,6 +142,22 @@ async def _compute_for_animal(db: AsyncIOMotorDatabase, animal_id: str) -> dict:
             }
             await create_alert(db, alert_data)
             alert_generated = True
+
+            # ── SMS alert to configured recipients ──────────────────────────
+            # Fire-and-forget: failure never blocks the risk response.
+            tag_id = animal.get("tag_id", animal_id)
+            sms_body = risk_alert_message(
+                animal_tag=tag_id,
+                risk_level=output.risk_level,
+                risk_score=output.risk_score_numeric,
+                recommended_action=output.recommended_action,
+                model_version=output.model_version,
+            )
+            sms_result = await send_alert_sms(sms_body)
+            logger.info(
+                "[SMS] Risk alert SMS — sent=%d failed=%d  animal=%s  risk=%s",
+                sms_result["sent"], sms_result["failed"], tag_id, output.risk_level,
+            )
 
         if output.risk_level == "no_risk":
             await resolve_alerts_for_animal(db, animal_id)
@@ -300,6 +317,83 @@ async def get_farm_alerts(
         data=[AlertResponse(**a) for a in alerts],
         meta=PaginationMeta(total=len(alerts), skip=skip, limit=limit),
     )
+
+
+@router.post("/test-sms")
+async def test_sms(
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """
+    **Demo endpoint — send a live test SMS to SMS_ALERT_PHONE.**
+
+    Pulls the most recent sensor reading for any active animal in the farm,
+    builds a realistic demo message, and fires it to every number in
+    SMS_ALERT_PHONE.  Safe to call in front of judges — it verifies the
+    full Twilio pipeline end-to-end.
+
+    Returns the Twilio delivery result so you can see it in the Swagger UI.
+    """
+    from app.core.config import settings as _s  # noqa: PLC0415
+    from app.services.sms_alerting import demo_test_message, send_alert_sms  # noqa: PLC0415
+
+    # Find a sensor reading to base the demo message on
+    tag_id        = "F01_COW_001"
+    surface_temp  = 0.0
+    thi_value     = 0.0
+
+    user_farm_id = str(current_user.get("farm_id") or "")
+    query: dict = {"status": "active"}
+    if user_farm_id:
+        query["farm_id"] = user_farm_id
+    animal_doc = await db.animals.find_one(query)
+
+    if animal_doc:
+        tag_id = animal_doc.get("tag_id", tag_id)
+        reading = await db.sensor_readings.find_one(
+            {"animal_id": animal_doc["_id"]},
+            sort=[("received_at", -1)],
+        )
+        if reading:
+            surface_temp = reading.get("surface_temp_c") or 0.0
+            thi_value    = reading.get("thi") or 0.0
+
+    if not _s.SMS_ENABLED:
+        return {
+            "status": "skipped",
+            "reason": "SMS_ENABLED=False in .env",
+            "tip": "Set SMS_ENABLED=True and restart the server.",
+        }
+
+    if not _s.SMS_ALERT_PHONE:
+        return {
+            "status": "skipped",
+            "reason": "SMS_ALERT_PHONE is not set in .env",
+            "tip": "Add SMS_ALERT_PHONE=+91XXXXXXXXXX to .env and restart.",
+        }
+
+    message = demo_test_message(
+        animal_tag=tag_id,
+        surface_temp=surface_temp,
+        thi=thi_value,
+    )
+    result = await send_alert_sms(message)
+
+    logger.info(
+        "[SMS] test-sms endpoint fired — sent=%d failed=%d  phone=%s",
+        result["sent"], result["failed"], _s.SMS_ALERT_PHONE,
+    )
+
+    return {
+        "status":     "ok" if result["sent"] > 0 else "failed",
+        "message_sent": message,
+        "twilio_result": result,
+        "from_number":   _s.TWILIO_FROM_NUMBER,
+        "to_numbers":    _s.SMS_ALERT_PHONE,
+        "animal_tag":    tag_id,
+        "surface_temp":  surface_temp,
+        "thi":           thi_value,
+    }
 
 
 @router.patch("/alerts/{alert_id}", response_model=AlertResponse)

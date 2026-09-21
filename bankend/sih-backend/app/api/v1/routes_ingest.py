@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional
 import uuid as _uuid
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile, status
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile, status
 from motor.motor_asyncio import AsyncIOMotorDatabase
 from pydantic import BaseModel
 
@@ -62,6 +62,11 @@ class ESP8266SensorPayload(BaseModel):
     activity: Optional[float] = None
     mic_average: Optional[float] = None
     mic_peak_peak: Optional[float] = None
+    rumination_inferred_min: Optional[float] = None
+    device_id: Optional[str] = None
+    device_uptime_ms: Optional[int] = None
+    local_prototype_risk_score: Optional[float] = None
+    local_prototype_risk_level: Optional[str] = None
     timestamp: Optional[str] = None
 
 
@@ -196,6 +201,7 @@ async def upload_udder_image(
     file: UploadFile = File(...),
     current_user: dict = Depends(get_current_user),
     db: AsyncIOMotorDatabase = Depends(get_db),
+    request: Request = None,
 ):
     """
     Upload an udder image (multipart/form-data).
@@ -209,7 +215,10 @@ async def upload_udder_image(
 
     os.makedirs(settings.MEDIA_DIR, exist_ok=True)
 
-    filename = f"{animal_id}_{datetime.utcnow().timestamp()}_{file.filename}"
+    extension = os.path.splitext(file.filename or "")[1].lower()
+    if extension not in {".jpg", ".jpeg", ".png", ".webp"}:
+        raise HTTPException(status_code=400, detail="Only JPG, PNG, and WEBP images are supported")
+    filename = f"{animal_id}_{_uuid.uuid4().hex}{extension}"
     file_path = os.path.join(settings.MEDIA_DIR, filename)
 
     try:
@@ -257,7 +266,11 @@ async def upload_udder_image(
         "_id": str(_uuid.uuid4()),
         "animal_id": animal_id,
         "captured_at": datetime.fromisoformat(captured_at),
-        "image_url": f"/media/{filename}",
+        "image_url": f"{str(request.base_url).rstrip('/')}/media/{filename}",
+        "original_filename": file.filename,
+        "stored_filename": filename,
+        "species": species,
+        "analysis_status": "completed" if cv_result_raw is not None else "failed",
         "cv_result": cv_result_raw,
         "cv_model_version": model_version,
         "reviewed_by_vet": None,
@@ -297,7 +310,7 @@ async def ingest_esp8266(
     Call POST /api/v1/risk/compute with the animal_id afterwards to
     run the ML risk engine on the freshly stored reading.
     """
-    # Resolve animal by tag_id (cow_id from firmware)
+    # Resolve animal by tag_id (cow_id from the device mapping).
     animal = await get_animal_by_tag(db, payload.cow_id)
     if not animal:
         raise HTTPException(
@@ -307,6 +320,25 @@ async def ingest_esp8266(
         )
 
     animal_id = animal["id"]
+
+    # MQTT QoS 1 may redeliver a packet. The device uptime is the only stable
+    # packet identifier supplied by this firmware, so use it to make retries
+    # idempotent without creating a second sensor document.
+    if payload.device_id and payload.device_uptime_ms is not None:
+        existing = await db.sensor_readings.find_one({
+            "device_id": payload.device_id,
+            "device_uptime_ms": payload.device_uptime_ms,
+        })
+        if existing:
+            return {
+                "status": "ok",
+                "duplicate": True,
+                "reading_id": str(existing["_id"]),
+                "animal_id": animal_id,
+                "tag_id": payload.cow_id,
+                "species": animal.get("species"),
+                "stored": normalise_doc(existing),
+            }
 
     # Determine recorded_at — use device timestamp if supplied, else server time
     if payload.timestamp:
@@ -339,7 +371,11 @@ async def ingest_esp8266(
         "relative_humidity": payload.humidity,
         "activity_raw": payload.activity,
         "audio_features": audio_features or None,
-        "rumination_inferred_min": None,    # inferred by ML pipeline later
+        "rumination_inferred_min": payload.rumination_inferred_min,
+        "device_id": payload.device_id,
+        "device_uptime_ms": payload.device_uptime_ms,
+        "local_prototype_risk_score": payload.local_prototype_risk_score,
+        "local_prototype_risk_level": payload.local_prototype_risk_level,
         "thi": thi,
         "source": "esp8266_collar",
     }
@@ -355,14 +391,14 @@ async def ingest_esp8266(
     # Check for heat-stress SMS alert
     sms_alert_sent = False
     if thi is not None and thi >= settings.SMS_THI_THRESHOLD:
-        sms_alert_sent = await send_sms(
-            None,  # no user phone at device level — handled by SMS service config
-            heat_stress_message(
-                payload.cow_id, thi,
-                payload.ambient_temperature,
-                payload.humidity,
-            ),
+        from app.services.sms_alerting import send_alert_sms as _send_alert  # noqa: PLC0415
+        sms_body = heat_stress_message(
+            payload.cow_id, thi,
+            payload.ambient_temperature,
+            payload.humidity,
         )
+        _result = await _send_alert(sms_body)
+        sms_alert_sent = _result["sent"] > 0
 
     return {
         "status": "ok",
@@ -375,8 +411,10 @@ async def ingest_esp8266(
             "ambient_temp_c": payload.ambient_temperature,
             "relative_humidity": payload.humidity,
             "activity_raw": payload.activity,
+            "rumination_inferred_min": payload.rumination_inferred_min,
             "thi": thi,
             "audio_features": audio_features or None,
+            "device_id": payload.device_id,
         },
         "baselines_updated": True,
         "sms_alert_sent": sms_alert_sent,

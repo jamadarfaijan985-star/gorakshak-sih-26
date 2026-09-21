@@ -1,5 +1,85 @@
 @import "tailwindcss";
 
+@theme inline {
+  --font-sans: "Manrope", sans-serif;
+  --font-display: "Lora", serif;
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+  --radius-2xl: calc(var(--radius) + 8px);
+  --radius-3xl: calc(var(--radius) + 12px);
+  --radius-4xl: calc(var(--radius) + 16px);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-ring-offset-background: var(--background);
+  --color-surface-strong: var(--surface-strong);
+  --color-field: var(--field);
+  --color-field-soft: var(--field-soft);
+  --color-straw: var(--straw);
+  --color-earth: var(--earth);
+  --color-tech-green: var(--tech-green);
+  --color-tech-cyan: var(--tech-cyan);
+  --color-warning: var(--warning);
+  --color-high-risk: var(--high-risk);
+}
+
+:root {
+  --radius: 0.5rem;
+  --background: oklch(0.958 0.006 86);
+  --foreground: oklch(0.248 0.012 54);
+  --card: oklch(0.985 0.004 86);
+  --card-foreground: oklch(0.248 0.012 54);
+  --popover: oklch(0.985 0.004 86);
+  --popover-foreground: oklch(0.248 0.012 54);
+  --primary: oklch(0.277 0.026 54);
+  --primary-foreground: oklch(0.958 0.006 86);
+  --secondary: oklch(0.895 0.014 74);
+  --secondary-foreground: oklch(0.277 0.026 54);
+  --muted: oklch(0.925 0.007 78);
+  --muted-foreground: oklch(0.505 0.013 57);
+  --accent: oklch(0.845 0.027 70);
+  --accent-foreground: oklch(0.248 0.012 54);
+  --destructive: oklch(0.65 0.184 24);
+  --destructive-foreground: oklch(0.984 0.003 247.858);
+  --border: oklch(0.813 0.021 68);
+  --input: oklch(0.813 0.021 68);
+  --ring: oklch(0.774 0.183 125);
+  --surface-strong: oklch(0.248 0.012 54);
+  --field: oklch(0.493 0.068 50);
+  --field-soft: oklch(0.895 0.014 74);
+  --straw: oklch(0.825 0.13 81);
+  --earth: oklch(0.493 0.068 50);
+  --tech-green: oklch(0.866 0.204 124);
+  --tech-cyan: oklch(0.798 0.123 190);
+  --warning: oklch(0.804 0.15 79);
+  --high-risk: oklch(0.65 0.184 24);
+}
+
+@utility section-shell { @apply mx-auto w-full max-w-[1320px] px-5 sm:px-8 lg:px-12; }
+@utility section-space { @apply py-20 md:py-28 lg:py-32; }
+@utility eyebrow { @apply text-xs font-bold uppercase tracking-[0.14em] text-primary; }
+@utility display-title { @apply font-display text-4xl leading-[1.08] font-medium md:text-5xl lg:text-6xl; }
+@utility body-lead { @apply text-lg leading-8 text-muted-foreground md:text-xl; }
+@utility editorial-rule { @apply border-t border-border; }
+
 @layer base {
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;

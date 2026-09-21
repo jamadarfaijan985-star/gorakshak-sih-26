@@ -10,6 +10,9 @@ from motor.motor_asyncio import AsyncIOMotorDatabase
 from app.core.security import decode_token
 from app.db.session import get_db
 from app.db.mongodb_utils import get_user_by_id, get_farm_by_id, get_animal_by_id
+from app.core.config import settings
+from datetime import datetime
+import uuid as _uuid
 
 
 # ---------------------------------------------------------------------------
@@ -59,6 +62,24 @@ async def get_current_user(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="User not found",
         )
+
+    # Development hardware fixture: make the real MQTT animal testable even
+    # when a newly created account has no farm_id yet. Production can disable it.
+    if not user.get("farm_id") and settings.DEV_FALLBACK_FARM_ENABLED:
+        farm = await db["farms"].find_one({"code": settings.DEV_FALLBACK_FARM_CODE})
+        if farm is None:
+            now = datetime.utcnow()
+            farm = {
+                "_id": str(_uuid.uuid4()),
+                "name": settings.DEV_FALLBACK_FARM_NAME,
+                "code": settings.DEV_FALLBACK_FARM_CODE,
+                "location_text": "Development hardware integration farm",
+                "created_at": now,
+                "updated_at": now,
+            }
+            await db["farms"].insert_one(farm)
+        await db["users"].update_one({"_id": user["_id"]}, {"$set": {"farm_id": str(farm["_id"])}})
+        user["farm_id"] = str(farm["_id"])
 
     return user
 

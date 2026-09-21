@@ -52,8 +52,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       .getCurrentUser()
       .then((u) => {
         setUserState(u);
-        // If user has a farm and no active farm is set yet, default to it
-        if (u.farm_id && !localStorage.getItem(ACTIVE_FARM_KEY)) {
+        // Always sync activeFarmId from the server — server is authoritative.
+        // This corrects stale localStorage values when the user's farm changes.
+        if (u.farm_id) {
           setActiveFarmIdState(u.farm_id);
           localStorage.setItem(ACTIVE_FARM_KEY, u.farm_id);
         }
@@ -69,7 +70,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const setUser = useCallback((u: UserResponse | null) => {
     setUserState(u);
-    if (u?.farm_id && !localStorage.getItem(ACTIVE_FARM_KEY)) {
+    // Always sync from the server value on login
+    if (u?.farm_id) {
       setActiveFarmIdState(u.farm_id);
       localStorage.setItem(ACTIVE_FARM_KEY, u.farm_id);
     }

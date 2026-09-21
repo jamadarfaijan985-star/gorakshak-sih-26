@@ -13,7 +13,7 @@ export const MainLayout: React.FC = () => {
   const { toasts, removeToast } = useApp();
 
   return (
-    <div className="min-h-screen bg-[#F9F8F6] text-[#403129] flex flex-col font-sans antialiased selection:bg-[#8A5B3D] selection:text-white">
+    <div className="min-h-screen bg-[#F9F8F6] text-[#403129] flex flex-col font-sans antialiased selection:bg-[#8A5B3D] selection:text-white overflow-x-hidden">
       {/* 1. Sticky Application Header */}
       <Header onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
 

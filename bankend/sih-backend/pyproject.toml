@@ -21,6 +21,7 @@ dependencies = [
     "apscheduler>=3.10.4",
     "pillow>=11.0.0",
     "httpx>=0.25.0",
+    "paho-mqtt>=2.0.0",
 ]
 
 [project.optional-dependencies]

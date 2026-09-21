@@ -11,6 +11,7 @@ import {
   mockYieldTrend,
 } from '../data/mockData';
 import { env } from '../config/env';
+import { parseBackendDate } from '../utils/date';
 import {
   ResponsiveContainer,
   LineChart,
@@ -61,7 +62,7 @@ const RISK_LEVEL_NUMERIC: Record<string, number> = {
 
 function fmt(dateStr: string): string {
   try {
-    return new Date(dateStr).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
+    return parseBackendDate(dateStr).toLocaleDateString('en-IN', { month: 'short', day: 'numeric' });
   } catch {
     return dateStr;
   }
@@ -72,6 +73,7 @@ export const Analytics: React.FC = () => {
   const { activeFarmId } = useAuth();
 
   const isLive = !env.DEMO_MODE && !!activeFarmId;
+  const isDemo = env.DEMO_MODE;
 
   const { data: apiAnimalsPage, isLoading: animalsLoading } = useAnimalList(
     isLive ? { farm_id: activeFarmId!, limit: 200 } : undefined,
@@ -188,7 +190,7 @@ export const Analytics: React.FC = () => {
         <div>
           <h1 className="text-xl font-black text-[#403129]">{t.analytics}</h1>
           <p className="text-xs text-[#746E68]">
-            {isLive ? t.analyticsSubtitleLive : t.analyticsSubtitleDemo}
+            {isLive ? t.analyticsSubtitleLive : isDemo ? t.analyticsSubtitleDemo : 'Waiting for live sensor data'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -253,7 +255,7 @@ export const Analytics: React.FC = () => {
                 ))}
               </select>
             )
-          ) : (
+          ) : isDemo ? (
             <select
               value={selectedAnimalId}
               onChange={(e) => setSelectedAnimalId(e.target.value)}
@@ -266,6 +268,8 @@ export const Analytics: React.FC = () => {
                 </option>
               ))}
             </select>
+          ) : (
+            <span className="text-[#746E68]">Waiting for live sensor data</span>
           )}
         </div>
 
@@ -326,7 +330,7 @@ export const Analytics: React.FC = () => {
       )}
 
       {/* ── CHARTS ── */}
-      {(!isLive || (!isLoading && liveSensorChartData.length > 0)) && (
+      {(isDemo || (!isLoading && liveSensorChartData.length > 0)) && (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
           {/* 1. Surface Temp */}
@@ -340,7 +344,7 @@ export const Analytics: React.FC = () => {
             </div>
             <div className="h-64 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={isLive ? liveSensorChartData : mockTemperatureTrend}>
+                <LineChart data={isLive ? liveSensorChartData : isDemo ? mockTemperatureTrend : []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EFE9E3" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#746E68' }} />
                   <YAxis domain={[28, 40]} tick={{ fontSize: 11, fill: '#746E68' }} />
@@ -364,13 +368,13 @@ export const Analytics: React.FC = () => {
             </div>
             <div className="h-64 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={isLive ? liveSensorChartData : mockRuminationTrend}>
+                <AreaChart data={isLive ? liveSensorChartData : isDemo ? mockRuminationTrend : []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EFE9E3" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#746E68' }} />
                   <YAxis domain={[0, 600]} tick={{ fontSize: 11, fill: '#746E68' }} />
                   <Tooltip />
                   <Legend wrapperStyle={{ fontSize: 11 }} />
-                  {!isLive && (
+                  {isDemo && (
                     <Area type="monotone" dataKey="baseline" name={t.baselineLabel} stroke="#746E68" fill="#EFE9E3" strokeDasharray="4 4" />
                   )}
                   <Area type="monotone" dataKey="rumination" name={t.aiRuminationLabel} stroke="#8A5B3D" fill="#8A5B3D" fillOpacity={0.25} />
@@ -390,7 +394,7 @@ export const Analytics: React.FC = () => {
             </div>
             <div className="h-64 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={isLive ? liveSensorChartData : mockActivityTrend}>
+                <BarChart data={isLive ? liveSensorChartData : isDemo ? mockActivityTrend : []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EFE9E3" />
                   <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#746E68' }} />
                   <YAxis tick={{ fontSize: 11, fill: '#746E68' }} />
@@ -417,7 +421,7 @@ export const Analytics: React.FC = () => {
             </div>
             <div className="h-64 pt-2">
               <ResponsiveContainer width="100%" height="100%">
-                <LineChart data={isLive ? liveRiskChartData : mockHerdRiskTrend}>
+                <LineChart data={isLive ? liveRiskChartData : isDemo ? mockHerdRiskTrend : []}>
                   <CartesianGrid strokeDasharray="3 3" stroke="#EFE9E3" />
                   <XAxis dataKey={isLive ? 'day' : 'day'} tick={{ fontSize: 11, fill: '#746E68' }} />
                   <YAxis domain={[0, 100]} tick={{ fontSize: 11, fill: '#746E68' }} />
@@ -457,7 +461,7 @@ export const Analytics: React.FC = () => {
           </div>
 
           {/* 5. THI */}
-          {(isLive ? liveSensorChartData.some((d) => d.thi != null) : true) && (
+          {(isLive ? liveSensorChartData.some((d) => d.thi != null) : isDemo) && (
             <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#D9CFC7] shadow-xs space-y-2 lg:col-span-2">
               <div className="flex items-center justify-between">
                 <div>
@@ -468,7 +472,7 @@ export const Analytics: React.FC = () => {
               </div>
               <div className="h-52 pt-2">
                 <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={isLive ? liveSensorChartData : mockTemperatureTrend}>
+                  <AreaChart data={isLive ? liveSensorChartData : isDemo ? mockTemperatureTrend : []}>
                     <CartesianGrid strokeDasharray="3 3" stroke="#EFE9E3" />
                     <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#746E68' }} />
                     <YAxis domain={[60, 90]} tick={{ fontSize: 11, fill: '#746E68' }} />

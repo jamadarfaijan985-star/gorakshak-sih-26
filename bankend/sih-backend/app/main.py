@@ -4,16 +4,25 @@ SIH26109: AI-Based Predictive Modelling for Early Forecasting of Bovine Mastitis
 """
 
 import logging
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
-from app.api.v1 import routes_animals, routes_auth, routes_farms, routes_ingest, routes_risk, routes_alerts
+from app.api.v1 import routes_animals, routes_auth, routes_farms, routes_ingest, routes_risk, routes_alerts, routes_devices
 from app.core.config import settings
 from app.db.session import init_db, close_db
 
 logger = logging.getLogger(__name__)
+
+# Configure a sensible log format so MQTT bridge messages are easy to read in the terminal.
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-8s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
 
 
 @asynccontextmanager
@@ -40,11 +49,40 @@ async def lifespan(app: FastAPI):
             exc,
         )
 
+    # 3. MQTT bridge — connects to Mosquitto and forwards ESP8266 readings to the
+    #    existing /api/v1/ingest/esp8266 endpoint.  Only started when MQTT_ENABLED
+    #    is True so the backend works normally without a broker in CI / dev.
+    if settings.MQTT_ENABLED:
+        try:
+            from app.services.mqtt_bridge import mqtt_bridge  # noqa: PLC0415
+            await mqtt_bridge.start()
+        except Exception as exc:  # noqa: BLE001
+            logger.error(
+                "MQTT bridge failed to start: %s. "
+                "Sensor data from hardware devices will NOT be received until this is fixed. "
+                "The rest of the backend continues normally.",
+                exc,
+            )
+    else:
+        logger.info(
+            "MQTT bridge is disabled (MQTT_ENABLED=false). "
+            "Set MQTT_ENABLED=true in .env to enable real hardware data ingestion."
+        )
+
     yield
 
     # ------------------------------------------------------------------ #
     # Shutdown                                                              #
     # ------------------------------------------------------------------ #
+
+    # Stop MQTT bridge before closing DB so in-flight messages can complete.
+    if settings.MQTT_ENABLED:
+        try:
+            from app.services.mqtt_bridge import mqtt_bridge  # noqa: PLC0415
+            await mqtt_bridge.stop()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("MQTT bridge shutdown error (non-fatal): %s", exc)
+
     await close_db()
 
 
@@ -60,10 +98,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+os.makedirs(settings.MEDIA_DIR, exist_ok=True)
+app.mount("/media", StaticFiles(directory=settings.MEDIA_DIR), name="media")
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.CORS_ORIGINS,
+    allow_origins=["*"],
+    allow_origin_regex=r"https?://.*",
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -76,6 +118,7 @@ app.include_router(routes_animals.router)
 app.include_router(routes_ingest.router)
 app.include_router(routes_risk.router)
 app.include_router(routes_alerts.router)
+app.include_router(routes_devices.router)
 
 
 @app.get("/", tags=["root"])

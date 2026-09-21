@@ -1,152 +1,93 @@
-import React, { useState } from 'react';
+import React from 'react';
+import { Link } from 'react-router-dom';
+import { Cpu, RefreshCw, Wifi, WifiOff, CheckCircle2, AlertTriangle, XCircle } from 'lucide-react';
 import { useApp } from '../context/AppContext';
-import { deviceService } from '../services/deviceService';
-import { animalService } from '../services/animalService';
-import { Device, DeviceConnectionStatus } from '../types';
-import { Cpu, Battery, Wifi, WifiOff, RefreshCw } from 'lucide-react';
+import { useAuth } from '../context/AuthContext';
+import { useDeviceStatus } from '../hooks/useDeviceStatus';
+import { env } from '../config/env';
+import { parseBackendDate } from '../utils/date';
+
+const DEVICE_ID = 'ESP8266-COW-001';
+
+function ageLabel(timestamp?: string | null) {
+  if (!timestamp) return 'No telemetry received';
+  const age = Math.max(0, Math.floor((Date.now() - parseBackendDate(timestamp).getTime()) / 1000));
+  return `${age} seconds ago`;
+}
+
+function statusStyle(status?: string) {
+  if (status === 'connected') return { label: 'Connected', icon: CheckCircle2, className: 'bg-emerald-100 text-emerald-800 border-emerald-300' };
+  if (status === 'stale') return { label: 'Stale', icon: AlertTriangle, className: 'bg-amber-100 text-amber-900 border-amber-300' };
+  return { label: 'Offline', icon: XCircle, className: 'bg-red-100 text-red-800 border-red-300' };
+}
 
 export const Devices: React.FC = () => {
-  const { t, showToast } = useApp();
-  const [devices, setDevices] = useState<Device[]>(deviceService.getAll());
-  const [pingingId, setPingingId] = useState<string | null>(null);
-  const animals = animalService.getAll();
+  const { showToast } = useApp();
+  const { activeFarmId } = useAuth();
+  const isLive = !env.DEMO_MODE;
+  const { data, error, isLoading, refetch } = useDeviceStatus(isLive ? DEVICE_ID : undefined, 5000);
+  const status = statusStyle(data?.status);
+  const StatusIcon = status.icon;
+  const latest = data?.latest_reading;
+  const mic = latest?.audio_features?.mic_average;
 
-  const handlePing = (id: string) => {
-    setPingingId(id);
-    setTimeout(() => {
-      deviceService.ping(id);
-      setDevices([...deviceService.getAll()]);
-      setPingingId(null);
-      showToast(`${t.toastDevicePingSuccess} — ${id}`, 'success');
-    }, 800);
-  };
-
-  const handleToggleStatus = (id: string, current: DeviceConnectionStatus) => {
-    const next: DeviceConnectionStatus =
-      current === 'Connected' ? 'Weak Connection' : current === 'Weak Connection' ? 'Offline' : 'Connected';
-    deviceService.updateStatus(id, next);
-    setDevices([...deviceService.getAll()]);
-    showToast(`${t.toastDeviceStatus} ${next}`, 'info');
-  };
-
-  const getStatusBadge = (status: DeviceConnectionStatus) => {
-    switch (status) {
-      case 'Connected':     return 'bg-emerald-100 text-emerald-800 border-emerald-300';
-      case 'Weak Connection': return 'bg-amber-100 text-amber-900 border-amber-300';
-      case 'Offline':       return 'bg-red-100 text-red-800 border-red-300';
-    }
+  const testConnection = async () => {
+    await refetch();
+    showToast(data?.status === 'connected'
+      ? 'Backend ✓ · MQTT ✓ · Device mapping ✓ · Recent telemetry ✓'
+      : 'Backend ✓ · Device mapping ✓ · Recent telemetry failed', data?.status === 'connected' ? 'success' : 'error');
   };
 
   return (
     <div id="devices-page" className="space-y-5">
-      {/* Header */}
       <div className="bg-white p-4 sm:p-5 rounded-2xl border border-[#D9CFC7] shadow-xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-black text-[#403129]">{t.devices}</h1>
-          <p className="text-xs text-[#746E68]">{t.devicesSubtitle}</p>
+          <h1 className="text-xl font-black text-[#403129]">DEVICE CONNECTION CENTER</h1>
+          <p className="text-xs text-[#746E68]">Real MQTT telemetry and backend connection diagnostics.</p>
         </div>
-        <div className="flex items-center gap-2 self-start sm:self-auto">
-          <span className="px-3 py-1 rounded-xl text-xs font-bold bg-[#EFE9E3] text-[#403129] border border-[#D9CFC7]">
-            {devices.filter((d) => d.connectionStatus === 'Connected').length} / {devices.length} {t.devicesOnlineCount}
-          </span>
-        </div>
+        {!env.DEMO_MODE && <span className="text-xs font-bold text-[#746E68]">5-second status refresh</span>}
       </div>
 
-      {/* Grid of Devices */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-        {devices.map((device) => {
-          const animal = animals.find((a) => a.id === device.assignedAnimalId);
-          const isPinging = pingingId === device.id;
-          const isLowBattery = device.batteryLevel < 25;
-
-          return (
-            <div
-              key={device.id}
-              className="bg-white border border-[#D9CFC7] rounded-2xl p-4 sm:p-5 shadow-xs flex flex-col justify-between space-y-3 hover:border-[#8A5B3D] transition-all"
-            >
-              <div>
-                <div className="flex items-start justify-between gap-2">
-                  <div className="flex items-center gap-2.5">
-                    <div className="p-2.5 bg-[#EFE9E3] text-[#8A5B3D] rounded-xl">
-                      <Cpu className="w-5 h-5" />
-                    </div>
-                    <div>
-                      <h3 className="font-extrabold text-sm font-mono text-[#403129]">{device.id}</h3>
-                      <p className="text-[11px] text-[#746E68]">{device.type || device.deviceType}</p>
-                    </div>
-                  </div>
-                  <button
-                    onClick={() => handleToggleStatus(device.id, device.connectionStatus)}
-                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold border transition-colors ${getStatusBadge(device.connectionStatus)}`}
-                    title="Click to cycle test status"
-                  >
-                    {device.connectionStatus}
-                  </button>
-                </div>
-
-                <div className="mt-3 p-2.5 bg-[#F9F8F6] rounded-xl border border-[#D9CFC7]/70 text-xs">
-                  <span className="text-[10px] font-bold text-[#746E68] uppercase tracking-wider block mb-0.5">
-                    {t.assignedSubjectLabel}:
-                  </span>
-                  {animal ? (
-                    <div className="font-bold text-[#403129]">
-                      {animal.name} ({animal.tag}) • {animal.species === 'cow' ? t.cow : t.buffalo}
-                    </div>
-                  ) : (
-                    <div className="text-[#746E68] italic">{t.unassignedSpareNode}</div>
-                  )}
-                </div>
-
-                <div className="mt-3 space-y-1 text-xs">
-                  <div className="flex items-center justify-between text-[#746E68]">
-                    <span className="flex items-center gap-1">
-                      <Battery className={`w-3.5 h-3.5 ${isLowBattery ? 'text-red-600' : 'text-[#8A5B3D]'}`} />
-                      <span>{t.batteryChargeLabel}</span>
-                    </span>
-                    <span className={`font-bold ${isLowBattery ? 'text-red-600' : 'text-[#403129]'}`}>
-                      {device.batteryLevel}%
-                    </span>
-                  </div>
-                  <div className="w-full h-2 bg-[#EFE9E3] rounded-full overflow-hidden">
-                    <div
-                      style={{ width: `${device.batteryLevel}%` }}
-                      className={`h-full transition-all ${
-                        isLowBattery ? 'bg-red-600' : device.batteryLevel < 50 ? 'bg-amber-500' : 'bg-emerald-600'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                <div className="mt-3 text-[11px] text-[#746E68] space-y-1">
-                  <div>
-                    {t.firmwareLabel}: <span className="font-mono font-semibold text-[#403129]">{device.firmware || device.firmwareVersion}</span>
-                  </div>
-                  <div className="line-clamp-1">
-                    {t.sensorsLabel}: <span className="text-[#403129] font-medium">{(device.sensors || device.sensorsInstalled || []).join(', ')}</span>
-                  </div>
-                  <div>
-                    {t.lastTelemetrySyncLabel}: <span className="text-[#403129] font-medium">{device.lastSync}</span>
-                  </div>
-                </div>
-              </div>
-
-              <div className="pt-3 border-t border-[#EFE9E3] flex items-center justify-between text-xs">
-                <button
-                  onClick={() => handlePing(device.id)}
-                  disabled={isPinging || device.connectionStatus === 'Offline'}
-                  className="px-3 py-1.5 bg-[#8A5B3D] hover:bg-[#403129] text-white rounded-lg font-bold flex items-center gap-1.5 disabled:opacity-50 transition-colors"
-                >
-                  <RefreshCw className={`w-3.5 h-3.5 ${isPinging ? 'animate-spin' : ''}`} />
-                  <span>{isPinging ? t.pingingLabel : t.pingNodeBtn}</span>
-                </button>
-                <span className="text-[10px] text-[#746E68]">
-                  {t.signalStrengthLabel}: {device.connectionStatus === 'Connected' ? t.signalConnected : t.signalWeak}
-                </span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
+      {env.DEMO_MODE ? (
+        <div className="p-5 rounded-2xl border border-amber-300 bg-amber-50 text-sm text-amber-900">DEMO MODE: device telemetry is disabled. Set VITE_DEMO_MODE=false for the real device.</div>
+      ) : (
+        <div className="bg-white border border-[#D9CFC7] rounded-2xl p-4 sm:p-6 shadow-xs space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+            <div className="flex items-center gap-3"><div className="p-3 bg-[#EFE9E3] text-[#8A5B3D] rounded-xl"><Cpu className="w-6 h-6" /></div><div><h2 className="font-extrabold font-mono text-[#403129]">{DEVICE_ID}</h2><p className="text-xs text-[#746E68]">MQTT sensor node</p></div></div>
+            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold border ${status.className}`}><StatusIcon className="w-4 h-4" />{status.label}</span>
+          </div>
+          {error && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800">Backend connection unavailable: {error}</div>}
+          {!error && data?.transport.mqtt !== 'connected' && <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-xs text-red-800">MQTT bridge disconnected</div>}
+          {!error && data?.transport.mqtt === 'connected' && !data.last_seen && <div className="p-3 rounded-xl bg-amber-50 border border-amber-300 text-xs text-amber-900">No live telemetry received</div>}
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div><span className="text-[#746E68]">Mapped Animal</span><div className="font-bold text-[#403129]">{data?.tag_id ?? '—'}</div></div>
+            <div><span className="text-[#746E68]">Farm</span><div className="font-bold text-[#403129]">{data?.farm_name ?? '—'}</div></div>
+            <div><span className="text-[#746E68]">MQTT Broker</span><div className="font-mono font-bold text-[#403129]">{data?.broker ?? '10.250.43.53:1884'}</div></div>
+            <div><span className="text-[#746E68]">Packets Received</span><div className="font-bold text-[#403129]">{data?.packets_received ?? '—'}</div></div>
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-3 rounded-xl bg-[#F9F8F6] border border-[#D9CFC7] text-xs">
+            <div><span className="text-[#746E68]">Topic</span><div className="font-mono break-all text-[#403129]">{data?.topic ?? `godrishti/${DEVICE_ID}/sensors`}</div></div>
+            <div><span className="text-[#746E68]">Last Telemetry</span><div className="font-bold text-[#403129]">{ageLabel(data?.last_seen)}</div></div>
+            <div><span className="text-[#746E68]">Transport: MQTT</span><div className="font-bold">{data?.transport.mqtt === 'connected' ? '🟢 Connected' : '🔴 Offline'}</div></div>
+            <div><span className="text-[#746E68]">Fallback: HTTP/Wi-Fi</span><div className="font-bold">{data?.transport.http_fallback === 'available' ? '🟢 Available' : '🔴 Unavailable'}</div></div>
+          </div>
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+            <div><span className="text-[#746E68]">Surface Temp</span><div className="font-bold">{latest?.surface_temp_c ?? '—'} °C</div></div>
+            <div><span className="text-[#746E68]">Ambient Temp</span><div className="font-bold">{latest?.ambient_temp_c ?? '—'} °C</div></div>
+            <div><span className="text-[#746E68]">Humidity</span><div className="font-bold">{latest?.relative_humidity ?? '—'} %</div></div>
+            <div><span className="text-[#746E68]">Activity</span><div className="font-bold">{latest?.activity_raw ?? '—'}</div></div>
+            <div><span className="text-[#746E68]">Acoustic</span><div className="font-bold">{typeof mic === 'number' ? mic : '—'}</div></div>
+            <div><span className="text-[#746E68]">Rumination</span><div className="font-bold">{latest?.rumination_inferred_min ?? '—'} min</div></div>
+          </div>
+          <div className="text-xs text-[#746E68]">Current Risk Screening: <strong className="text-[#403129]">{data?.latest_risk?.risk_score_numeric != null ? `${(data.latest_risk.risk_score_numeric * 100).toFixed(0)}/100` : '—'}</strong> · <strong className="text-emerald-700">{data?.latest_risk?.risk_level === 'no_risk' ? 'Below Alert Threshold' : data?.latest_risk?.risk_level ?? 'No risk score yet'}</strong></div>
+          <div className="flex flex-wrap gap-2 pt-3 border-t border-[#EFE9E3]">
+            <button onClick={testConnection} disabled={isLoading} className="px-3 py-2 bg-[#403129] text-white rounded-xl text-xs font-bold flex items-center gap-1.5"><Wifi className="w-3.5 h-3.5" />Test Connection</button>
+            <button onClick={refetch} disabled={isLoading} className="px-3 py-2 bg-[#EFE9E3] text-[#403129] rounded-xl text-xs font-bold flex items-center gap-1.5"><RefreshCw className={isLoading ? 'w-3.5 h-3.5 animate-spin' : 'w-3.5 h-3.5'} />Refresh Status</button>
+            <Link to={`/animals/${data?.animal_id ?? ''}`} className="px-3 py-2 bg-[#8A5B3D] text-white rounded-xl text-xs font-bold">View Live Data</Link>
+            <button onClick={() => showToast('Disconnect is disabled for the fixed production device mapping.', 'info')} className="px-3 py-2 bg-red-50 text-red-800 rounded-xl text-xs font-bold flex items-center gap-1.5"><WifiOff className="w-3.5 h-3.5" />Disconnect Device</button>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

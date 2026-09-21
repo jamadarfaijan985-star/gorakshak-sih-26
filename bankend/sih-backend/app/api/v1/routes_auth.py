@@ -19,6 +19,35 @@ from app.db.mongodb_utils import (
 from app.models.models import UserRoleEnum
 from app.schemas.schemas import LoginRequest, LoginResponse, UserResponse, UserCreate
 from app.api.v1.deps import get_current_user
+from datetime import datetime
+import uuid as _uuid
+
+
+async def _ensure_development_farm(user: dict, db: AsyncIOMotorDatabase) -> dict:
+    """Assign the shared hardware test farm to unassigned development users."""
+    if not settings.DEV_FALLBACK_FARM_ENABLED:
+        return user
+    farm = await db["farms"].find_one({"code": settings.DEV_FALLBACK_FARM_CODE})
+    if farm is None:
+        now = datetime.utcnow()
+        farm = {
+            "_id": str(_uuid.uuid4()),
+            "name": settings.DEV_FALLBACK_FARM_NAME,
+            "code": settings.DEV_FALLBACK_FARM_CODE,
+            "location_text": "Development hardware integration farm",
+            "created_at": now,
+            "updated_at": now,
+        }
+        await db["farms"].insert_one(farm)
+    await db["users"].update_one({"_id": user["_id"]}, {"$set": {"farm_id": str(farm["_id"])}})
+    # Keep the known hardware fixture in the same development farm so the
+    # authenticated user, animal, and device status endpoint share one scope.
+    await db["animals"].update_one(
+        {"tag_id": "F01_COW_001"},
+        {"$set": {"farm_id": str(farm["_id"]), "updated_at": datetime.utcnow()}},
+    )
+    user["farm_id"] = str(farm["_id"])
+    return user
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
@@ -36,6 +65,7 @@ async def login(
             detail="Invalid email or password",
         )
 
+    user = await _ensure_development_farm(user, db)
     access_token = create_access_token(
         data={"sub": user["_id"]},
         expires_delta=timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),

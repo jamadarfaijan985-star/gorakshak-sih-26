@@ -5,6 +5,7 @@ import { useAlerts } from '../hooks/useAlerts';
 import { riskApiService } from '../services/riskApiService';
 import { alertService } from '../services/alertService';
 import { env } from '../config/env';
+import { parseBackendDate } from '../utils/date';
 import type { AlertResponse } from '../types/api';
 import type { Alert, AlertPriority, AlertStatus } from '../types';
 import {
@@ -43,6 +44,7 @@ export const Alerts: React.FC = () => {
   const [refreshKey, setRefreshKey] = useState(0);
 
   const isLive = !env.DEMO_MODE && !!activeFarmId;
+  const isDemo = env.DEMO_MODE;
 
   const { data: apiPage, isLoading, error, refetch } = useAlerts(
     isLive
@@ -107,7 +109,7 @@ export const Alerts: React.FC = () => {
         <div>
           <h1 className="text-xl font-black text-[#403129]">{t.alerts}</h1>
           <p className="text-xs text-[#746E68]">
-            {isLive ? t.alertsSubtitleLive : t.alertsSubtitleDemo}
+            {isLive ? t.alertsSubtitleLive : isDemo ? t.alertsSubtitleDemo : 'Backend connection unavailable'}
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -202,7 +204,7 @@ export const Alerts: React.FC = () => {
                       <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[9px] font-extrabold uppercase px-2 py-0.5 rounded ${severityBadgeClass(alert.severity)}`}>{alert.severity}</span>
                         <span className={`text-[9px] font-bold uppercase px-2 py-0.5 rounded ${statusBadgeClass(alert.status)}`}>{alert.status.replace('_', ' ')}</span>
-                        <span className="text-[11px] text-[#746E68]">{new Date(alert.triggered_at).toLocaleString()}</span>
+                        <span className="text-[11px] text-[#746E68]">{parseBackendDate(alert.triggered_at).toLocaleString()}</span>
                       </div>
                       <p className="text-xs text-[#746E68] mt-1 leading-relaxed">{alert.message}</p>
                       <div className="mt-1.5 text-xs font-semibold text-[#8A5B3D]">
@@ -239,7 +241,7 @@ export const Alerts: React.FC = () => {
       )}
 
       {/* DEMO alert cards */}
-      {!isLive && (
+      {isDemo && (
         <div className="space-y-3">
           {demoAlerts.length === 0 ? (
             <div className="p-8 text-center bg-white border border-[#D9CFC7] rounded-2xl">

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -12,6 +12,7 @@ import { RiskBadge } from '../components/RiskBadge';
 import { ScientificDisclaimer } from '../components/ScientificDisclaimer';
 import { AIHealthSignals } from '../components/AIHealthSignals';
 import { env } from '../config/env';
+import { parseBackendDate } from '../utils/date';
 import {
   ArrowLeft, Calendar, Activity, Droplet, Heart, History, Radio, Thermometer,
   ShieldAlert, Clock, Plus, Trash2, Camera, CheckCircle2, AlertTriangle,
@@ -40,6 +41,15 @@ function riskLevelLabel(level: string): string {
   return map[level] ?? level.replace('_', ' ');
 }
 
+function formatSensorAge(recordedAt: string | undefined): string {
+  if (!recordedAt) return 'Waiting for sensor data...';
+  const ageSeconds = Math.max(0, Math.floor((Date.now() - parseBackendDate(recordedAt).getTime()) / 1000));
+  if (ageSeconds < 5) return 'Just now';
+  if (ageSeconds < 60) return `${ageSeconds} seconds ago`;
+  const ageMinutes = Math.floor(ageSeconds / 60);
+  return `${ageMinutes} minute${ageMinutes === 1 ? '' : 's'} ago`;
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 export const AnimalDetails: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -49,6 +59,7 @@ export const AnimalDetails: React.FC = () => {
   const [activeTab, setActiveTab] = useState<TabKey>('overview');
 
   const isLive = !env.DEMO_MODE && !!activeFarmId;
+  const isDemo = env.DEMO_MODE;
 
   // ── Live data ──────────────────────────────────────────────────────────────
   const { data: liveAnimal, isLoading: animalLoading, error: animalError } = useAnimal(
@@ -64,8 +75,36 @@ export const AnimalDetails: React.FC = () => {
   // 7d/14d XGBoost forecast — only in live mode; 503/422 responses are graceful
   const { data: forecastData, isLoading: forecastLoading } = useForecast(isLive ? id : undefined);
 
+  // Refresh only the sensor query; the page and animal profile stay mounted.
+  useEffect(() => {
+    if (!isLive || !id) return;
+    const interval = window.setInterval(() => {
+      refetchSensor();
+    }, 10_000);
+    return () => window.clearInterval(interval);
+  }, [id, isLive, refetchSensor]);
+
+  const latestSensor = sensorPage?.data[0];
+  const sensorAge = latestSensor?.received_at
+    ? Math.max(0, Math.floor((Date.now() - parseBackendDate(latestSensor.received_at).getTime()) / 1000))
+    : null;
+  const sensorStatus = sensorAge == null
+    ? 'offline'
+    : sensorAge <= 15
+      ? 'connected'
+      : sensorAge <= 60
+        ? 'stale'
+        : 'offline';
+  const acousticSignal = latestSensor?.audio_features?.mic_average;
+  const behaviorData = latestSensor ? {
+    status: 'normal' as const,
+    dataSource: 'sensor',
+    observation: 'Behavior signal is connected to live activity and acoustic telemetry. This is an AI-inferred behavior signal, not a diagnosis.',
+    computedAt: latestSensor.recorded_at,
+  } : null;
+
   // ── Demo data ──────────────────────────────────────────────────────────────
-  const demoAnimal = !isLive && id ? animalService.getById(id) : undefined;
+  const demoAnimal = isDemo && id ? animalService.getById(id) : undefined;
   const milkRecords = id ? milkService.getByAnimalId(id) : [];
   const cmtRecords = id ? cmtService.getByAnimalId(id) : [];
   const healthRecords = id ? healthService.getByAnimalId(id) : [];
@@ -106,7 +145,7 @@ export const AnimalDetails: React.FC = () => {
     );
   }
 
-  if (!isLive && !demoAnimal) {
+  if (isDemo && !demoAnimal) {
     return (
       <div className="p-8 text-center bg-white rounded-2xl border border-[#D9CFC7]">
         <h2 className="text-base font-bold text-[#403129]">{t.animalNotFound}</h2>
@@ -147,7 +186,7 @@ export const AnimalDetails: React.FC = () => {
           <Link to={`/udder-analysis?animalId=${id}`} className="px-3 py-1.5 bg-[#8A5B3D] hover:bg-[#403129] text-white text-xs font-semibold rounded-xl flex items-center gap-1">
             <Camera className="w-3.5 h-3.5" /><span>{t.udderScanBtn}</span>
           </Link>
-          {!isLive && demoAnimal && (
+          {isDemo && demoAnimal && (
             <button onClick={handleDeleteDemo} className="p-1.5 text-red-600 hover:bg-red-50 rounded-lg" title="Remove animal">
               <Trash2 className="w-4 h-4" />
             </button>
@@ -259,13 +298,13 @@ export const AnimalDetails: React.FC = () => {
               forecastData={forecastData ?? null}
               forecastLoading={forecastLoading}
               udderResult={null}
-              behaviorData={null}
+              behaviorData={behaviorData}
               onComputeRisk={handleComputeRisk}
               computingRisk={computingRisk}
             />
           )}
 
-          {!isLive && demoAnimal && (
+          {isDemo && demoAnimal && (
             <div className="bg-white border border-[#D9CFC7] rounded-2xl p-5 shadow-xs">
               {/* Demo: wrap in AIHealthSignals heading for visual consistency */}
               <div className="flex items-center justify-between mb-3">
@@ -323,7 +362,7 @@ export const AnimalDetails: React.FC = () => {
           )}
 
           {/* Quick stats */}
-          {!isLive && demoAnimal && (
+          {isDemo && demoAnimal && (
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <div className="bg-white p-3.5 rounded-xl border border-[#D9CFC7]">
                 <span className="text-[11px] text-[#746E68]">{t.baselineSkinTempLabel}</span>
@@ -355,62 +394,78 @@ export const AnimalDetails: React.FC = () => {
         <div className="bg-white border border-[#D9CFC7] rounded-2xl p-5 shadow-xs space-y-4">
           {isLive ? (
             <>
-              <div className="flex items-center justify-between">
-                <div>
-                  <h3 className="font-bold text-sm text-[#403129]">{t.sensorReadingHistory}</h3>
-                  <p className="text-xs text-[#746E68]">{t.mostRecentSensorData}</p>
+              <div className="flex flex-col gap-3 border-b border-[#EFE9E3] pb-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                  <div>
+                    <h3 className="font-bold text-sm text-[#403129]">LIVE SENSOR DATA</h3>
+                    <p className="text-xs text-[#746E68]">Device: ESP8266-COW-001 · Animal: {liveAnimal?.tag_id ?? '—'}</p>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold ${sensorStatus === 'connected' ? 'bg-emerald-100 text-emerald-800' : sensorStatus === 'stale' ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-800'}`}>
+                      <span className={`w-2 h-2 rounded-full ${sensorStatus === 'connected' ? 'bg-emerald-500 animate-pulse' : sensorStatus === 'stale' ? 'bg-amber-500' : 'bg-red-500'}`} />
+                      {sensorStatus === 'connected' ? 'Connected' : sensorStatus === 'stale' ? 'Stale' : 'Offline'}
+                    </span>
+                    <button onClick={refetchSensor} className="flex items-center gap-1 text-xs text-[#8A5B3D] hover:text-[#403129] font-semibold">
+                      <RefreshCw className="w-3.5 h-3.5" /> {t.refreshBtn}
+                    </button>
+                  </div>
                 </div>
-                <button onClick={refetchSensor} className="flex items-center gap-1 text-xs text-[#8A5B3D] hover:text-[#403129] font-semibold">
-                  <RefreshCw className="w-3.5 h-3.5" /> {t.refreshBtn}
-                </button>
+
+                {latestSensor ? (
+                  <>
+                    <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2 text-xs">
+                      <div><div className="text-[#746E68]">Surface Temperature</div><strong>{latestSensor.surface_temp_c ?? '—'}{latestSensor.surface_temp_c != null ? ' °C' : ''}</strong><div className="text-[9px] text-[#746E68]">DS18B20 Measured</div></div>
+                      <div><div className="text-[#746E68]">Ambient Temperature</div><strong>{latestSensor.ambient_temp_c ?? '—'}{latestSensor.ambient_temp_c != null ? ' °C' : ''}</strong><div className="text-[9px] text-[#746E68]">DHT11 Measured</div></div>
+                      <div><div className="text-[#746E68]">Humidity</div><strong>{latestSensor.relative_humidity ?? '—'}{latestSensor.relative_humidity != null ? ' %' : ''}</strong></div>
+                      <div><div className="text-[#746E68]">Activity</div><strong>{latestSensor.activity_raw ?? '—'}</strong></div>
+                      <div><div className="text-[#746E68]">Acoustic Signal</div><strong>{typeof acousticSignal === 'number' ? acousticSignal : '—'}</strong></div>
+                      <div><div className="text-[#746E68]">Rumination</div><strong>{latestSensor.rumination_inferred_min ?? '—'}{latestSensor.rumination_inferred_min != null ? ' min' : ''}</strong><div className="text-[9px] text-amber-700">AI-Inferred</div></div>
+                    </div>
+                    <div className="text-[11px] text-[#746E68]">Last Updated: {formatSensorAge(latestSensor.recorded_at)}</div>
+                  </>
+                ) : (
+                  <div className="text-xs text-[#746E68]">Waiting for sensor data...</div>
+                )}
+              </div>
+
+              <div>
+                <h3 className="font-bold text-sm text-[#403129]">{t.sensorReadingHistory}</h3>
+                <p className="text-xs text-[#746E68]">Latest 10 readings, newest first</p>
               </div>
 
               {sensorLoading ? (
                 <div className="flex items-center justify-center py-8"><Loader2 className="w-6 h-6 text-[#8A5B3D] animate-spin" /></div>
               ) : sensorPage && sensorPage.data.length > 0 ? (
-                <div className="space-y-3">
-                  {sensorPage.data.map((r) => (
-                    <div key={r.id} className="p-4 bg-[#F9F8F6] border border-[#D9CFC7] rounded-xl">
-                      <div className="flex items-center justify-between mb-2">
-                        <span className="text-[11px] text-[#746E68] font-mono">{new Date(r.recorded_at).toLocaleString()}</span>
-                        <span className="text-[10px] font-semibold text-[#8A5B3D] bg-[#EFE9E3] px-2 py-0.5 rounded">{r.source}</span>
-                      </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
-                        <div>
-                          <div className="text-[#746E68]">{t.surfaceTemperature}</div>
-                          <div className="font-bold text-[#403129]">{r.surface_temp_c != null ? `${r.surface_temp_c}°C` : '—'}</div>
-                          <div className="text-[9px] text-[#8A5B3D]">{t.measured} · DS18B20</div>
-                        </div>
-                        <div>
-                          <div className="text-[#746E68]">{t.aiInferredRumination}</div>
-                          <div className="font-bold text-[#403129]">{r.rumination_inferred_min != null ? `${r.rumination_inferred_min} min` : '—'}</div>
-                          <div className="text-[9px] text-amber-700">{t.aiInferred} · MAX9814</div>
-                        </div>
-                        <div>
-                          <div className="text-[#746E68]">{t.activity}</div>
-                          <div className="font-bold text-[#403129]">{r.activity_raw != null ? r.activity_raw.toFixed(1) : '—'}</div>
-                          <div className="text-[9px] text-[#8A5B3D]">{t.measured} · MPU6050</div>
-                        </div>
-                        <div>
-                          <div className="text-[#746E68]">{t.barnThi}</div>
-                          <div className="font-bold text-[#403129]">{r.thi != null ? r.thi.toFixed(1) : '—'}</div>
-                          <div className="text-[9px] text-blue-700">{t.estimated} · SHT31-D</div>
-                        </div>
-                        {r.ambient_temp_c != null && (
-                          <div>
-                            <div className="text-[#746E68]">{t.ambientTemp}</div>
-                            <div className="font-bold text-[#403129]">{r.ambient_temp_c}°C</div>
-                          </div>
-                        )}
-                        {r.relative_humidity != null && (
-                          <div>
-                            <div className="text-[#746E68]">{t.humidityLabel}</div>
-                            <div className="font-bold text-[#403129]">{r.relative_humidity}%</div>
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  ))}
+                <div className="overflow-x-auto border border-[#D9CFC7] rounded-xl">
+                  <table className="w-full min-w-[760px] text-xs">
+                    <thead className="bg-[#F9F8F6] text-left text-[#746E68]">
+                      <tr>
+                        <th className="p-3 font-semibold">Timestamp</th>
+                        <th className="p-3 font-semibold">Surface Temp</th>
+                        <th className="p-3 font-semibold">Ambient Temp</th>
+                        <th className="p-3 font-semibold">Humidity</th>
+                        <th className="p-3 font-semibold">Activity</th>
+                        <th className="p-3 font-semibold">Acoustic Signal</th>
+                        <th className="p-3 font-semibold">Rumination</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {sensorPage.data.slice(0, 10).map((r) => {
+                        const mic = r.audio_features?.mic_average;
+                        return (
+                          <tr key={r.id} className="border-t border-[#EFE9E3]">
+                            <td className="p-3 text-[#746E68] font-mono">{parseBackendDate(r.recorded_at).toLocaleString()}</td>
+                            <td className="p-3 font-bold">{r.surface_temp_c != null ? `${r.surface_temp_c} °C` : '—'}</td>
+                            <td className="p-3 font-bold">{r.ambient_temp_c != null ? `${r.ambient_temp_c} °C` : '—'}</td>
+                            <td className="p-3 font-bold">{r.relative_humidity != null ? `${r.relative_humidity} %` : '—'}</td>
+                            <td className="p-3 font-bold">{r.activity_raw ?? '—'}</td>
+                            <td className="p-3 font-bold">{typeof mic === 'number' ? mic : '—'}</td>
+                            <td className="p-3 font-bold">{r.rumination_inferred_min != null ? `${r.rumination_inferred_min} min` : '—'}</td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
                 </div>
               ) : (
                 <div className="text-center py-8 text-xs text-[#746E68]">
@@ -581,7 +636,7 @@ export const AnimalDetails: React.FC = () => {
                       )}
                     </div>
                     <div className="text-right shrink-0">
-                      <div className="text-[10px] font-mono">{new Date(r.computed_at).toLocaleDateString()}</div>
+                      <div className="text-[10px] font-mono">{parseBackendDate(r.computed_at).toLocaleDateString()}</div>
                       <div className="text-[10px] opacity-75">{r.model_version}</div>
                     </div>
                   </div>

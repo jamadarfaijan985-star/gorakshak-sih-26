@@ -1044,8 +1044,8 @@ export const translations: Record<Language, Translations> = {
     allParamsNormal: 'All parameters within normal limits.',
     recommendedActionLabel: 'Recommended action',
     temporalForecastingSignals: 'Temporal Forecasting Signals',
-    notYetIntegrated7d: 'gorakshak_forecast_7d_xgb_v2 — not yet integrated',
-    notYetIntegrated14d: 'gorakshak_forecast_14d_xgb_v2 — not yet integrated',
+    notYetIntegrated7d: 'Insufficient recent data for the 7-day forecast',
+    notYetIntegrated14d: 'Insufficient recent data for the 14-day forecast',
     windowComputedLabel: 'Window',
     imageStoredAt: 'Image stored at',
     cvAnalysisPending: 'CV analysis will appear once Model 2 is connected.',
@@ -1213,7 +1213,7 @@ export const translations: Record<Language, Translations> = {
     healthEmptyHint: 'Click "Log Veterinary Treatment" to register a clinical observation.',
 
     // Live Monitoring page
-    monitoringSubtitleLive: 'Showing latest sensor readings from backend — refresh interval: 30s',
+    monitoringSubtitleLive: 'Showing latest sensor readings from backend — refresh interval: 10s',
     monitoringSubtitleDemo: 'Streaming from MPU6050, DS18B20, MAX9814 collar nodes and SHT31-D barn units',
     stopAutoRefresh: 'Stop Auto-Refresh',
     startAutoRefresh: 'Auto-Refresh (30s)',
@@ -1419,7 +1419,7 @@ export const translations: Record<Language, Translations> = {
     // AI Health Signals extra
     computedLabel: 'Computed',
     scoreLabel: 'Score',
-    behaviorPendingDesc: 'Model 3 behavior endpoint is not yet connected. Activity and rumination deviation signals will appear here once the backend behavior classifier is integrated.',
+    behaviorPendingDesc: 'Backend integration required for a derived behavior classifier. Live activity and acoustic telemetry remain available above.',
     observationWindowLabel: 'Observation window',
 
     // Dashboard extra

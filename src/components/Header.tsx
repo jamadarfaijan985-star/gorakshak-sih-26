@@ -4,6 +4,7 @@ import { useAuth } from '../context/AuthContext';
 import { alertService } from '../services/alertService';
 import { Language } from '../i18n/translations';
 import { env } from '../config/env';
+import { useDeviceStatus } from '../hooks/useDeviceStatus';
 import {
   Bell, Globe, Plus, Radio, Wifi, Menu, ChevronDown, LogOut, User,
 } from 'lucide-react';
@@ -12,7 +13,8 @@ import { InnovxLogo } from './InnovxLogo';
 
 export const Header: React.FC<{ onOpenMobileMenu?: () => void }> = ({ onOpenMobileMenu }) => {
   const { language, setLanguage, t, farmMode, setFarmMode, speciesFilter, setSpeciesFilter, openModal } = useApp();
-  const { user, logout, isAuthenticated } = useAuth();
+  const { user, logout, isAuthenticated, activeFarmId } = useAuth();
+  const { data: deviceStatus } = useDeviceStatus(!env.DEMO_MODE && activeFarmId ? 'ESP8266-COW-001' : undefined, 5000);
   const navigate = useNavigate();
   const [showLangMenu, setShowLangMenu] = useState(false);
   const [showModeMenu, setShowModeMenu] = useState(false);
@@ -36,9 +38,9 @@ export const Header: React.FC<{ onOpenMobileMenu?: () => void }> = ({ onOpenMobi
       id="app-header"
       className="sticky top-0 z-30 bg-[#FFFFFF] border-b border-[#D9CFC7]/80 shadow-xs"
     >
-      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2">
+      <div className="max-w-7xl mx-auto px-3 sm:px-6 lg:px-8 h-16 flex items-center justify-between gap-2 min-w-0 overflow-hidden">
         {/* Left: Hamburger (mobile) + Logo & Title */}
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3 shrink-0">
           {onOpenMobileMenu && (
             <button
               id="mobile-menu-btn"
@@ -144,6 +146,11 @@ export const Header: React.FC<{ onOpenMobileMenu?: () => void }> = ({ onOpenMobi
                       Collar, phone observations & CMT paddle. No lab/SCC required.
                     </div>
                   </div>
+                  {!env.DEMO_MODE && activeFarmId && (
+                    <span className={`hidden lg:inline-flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-bold border ${deviceStatus?.status === 'connected' ? 'bg-emerald-100 text-emerald-800 border-emerald-200' : deviceStatus?.status === 'stale' ? 'bg-amber-100 text-amber-900 border-amber-200' : 'bg-red-100 text-red-800 border-red-200'}`}>
+                      {deviceStatus?.status === 'connected' ? '🟢 Connected Farm Mode' : deviceStatus?.status === 'stale' ? '🟡 Device Stale' : '🔴 Device Offline'}
+                    </span>
+                  )}
                 </button>
                 <button
                   onClick={() => {

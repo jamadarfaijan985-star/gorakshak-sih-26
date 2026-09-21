@@ -26,6 +26,7 @@ from app.schemas.schemas import (
     AnimalUpdate,
     SensorReadingResponse,
     RiskScoreResponse,
+    UdderImageResponse,
     ListResponse,
     PaginationMeta,
 )
@@ -50,10 +51,13 @@ async def create_animal_endpoint(
 
     existing = await get_animal_by_tag(db, request.tag_id)
     if existing:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Animal with tag {request.tag_id} already exists",
-        )
+        if str(existing.get("farm_id")) != farm_id_str:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Animal with tag {request.tag_id} already belongs to another farm",
+            )
+        # Registration is idempotent so retrying the form cannot duplicate the animal.
+        return AnimalResponse(**existing)
 
     new_id = str(_uuid.uuid4())
     animal_data = {
@@ -172,6 +176,26 @@ async def get_current_risk_endpoint(
             detail="No risk score computed yet for this animal",
         )
     return RiskScoreResponse(**risk)
+
+
+@router.get("/{animal_id}/udder-images", response_model=ListResponse[UdderImageResponse])
+async def get_udder_images_endpoint(
+    animal_id: str,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=200),
+    current_user: dict = Depends(get_current_user),
+    db: AsyncIOMotorDatabase = Depends(get_db),
+):
+    """Return persisted udder uploads and their real analysis results."""
+    await require_animal_farm_access(animal_id, current_user, db)
+    total = await db.udder_images.count_documents({"animal_id": animal_id})
+    docs = await db.udder_images.find({"animal_id": animal_id}).sort(
+        "captured_at", -1
+    ).skip(skip).limit(limit).to_list(limit)
+    return ListResponse(
+        data=[UdderImageResponse(**normalise_doc(doc)) for doc in docs],
+        meta=PaginationMeta(total=total, skip=skip, limit=limit),
+    )
 
 
 @router.get("/{animal_id}/risk-history", response_model=ListResponse[RiskScoreResponse])

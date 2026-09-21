@@ -5,12 +5,14 @@
 
 import React from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { Loader2 } from 'lucide-react';
 import { AppProvider } from './context/AppContext';
-import { AuthProvider } from './context/AuthContext';
+import { AuthProvider, useAuth } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { MainLayout } from './layouts/MainLayout';
 
-// Auth pages (public)
+// Auth & Landing pages (public)
+import { LandingPage } from './pages/LandingPage';
 import { Login } from './pages/Login';
 import { Register } from './pages/Register';
 
@@ -32,6 +34,31 @@ import { FarmMap } from './pages/FarmMap';
 import { Settings } from './pages/Settings';
 import { Profile } from './pages/Profile';
 
+function RootRoute() {
+  const { isAuthenticated, initialising } = useAuth();
+
+  if (initialising) {
+    return (
+      <div className="min-h-screen bg-[#F9F8F6] flex items-center justify-center">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="w-8 h-8 text-[#8A5B3D] animate-spin" />
+          <p className="text-xs text-[#746E68]">Loading GoDrishti…</p>
+        </div>
+      </div>
+    );
+  }
+
+  if (!isAuthenticated) {
+    return <LandingPage />;
+  }
+
+  return (
+    <ProtectedRoute>
+      <MainLayout />
+    </ProtectedRoute>
+  );
+}
+
 export default function App() {
   return (
     <AuthProvider>
@@ -39,18 +66,12 @@ export default function App() {
         <BrowserRouter>
           <Routes>
             {/* ── Public routes ─────────────────────────────────── */}
+            <Route path="/landing" element={<LandingPage />} />
             <Route path="/login" element={<Login />} />
             <Route path="/register" element={<Register />} />
 
-            {/* ── Protected routes ──────────────────────────────── */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <MainLayout />
-                </ProtectedRoute>
-              }
-            >
+            {/* ── Root / Protected routes ───────────────────────── */}
+            <Route path="/" element={<RootRoute />}>
               <Route index element={<Dashboard />} />
               <Route path="animals" element={<Animals />} />
               <Route path="animals/:id" element={<AnimalDetails />} />

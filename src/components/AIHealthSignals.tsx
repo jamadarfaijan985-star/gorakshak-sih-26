@@ -70,7 +70,7 @@ const SIGNAL_STYLE: Record<SignalState, { label: string; color: string; bg: stri
     Icon: HelpCircle,
   },
   pending: {
-    label: 'Integration Pending',
+    label: 'Backend integration required',
     color: 'text-[#746E68]',
     bg: 'bg-[#F9F8F6]',
     border: 'border-[#D9CFC7]',
@@ -412,7 +412,7 @@ export const AIHealthSignals: React.FC<Props> = ({
             <div className="flex items-start gap-2 p-3 rounded-lg bg-[#F9F8F6] border border-[#D9CFC7]">
               <Clock className="w-4 h-4 text-[#746E68] shrink-0 mt-0.5" />
               <div className="text-xs text-[#746E68]">
-                <span className="font-semibold text-[#403129]">{t.signalPending}</span> —
+                <span className="font-semibold text-[#403129]">Backend integration required</span> —
                 {t.imageStoredAt}{' '}
                 <code className="font-mono text-[10px]">{udderResult.image_url}</code>.
                 {t.cvAnalysisPending}
@@ -426,7 +426,7 @@ export const AIHealthSignals: React.FC<Props> = ({
           <div className="text-xs text-[#746E68] space-y-1">
             <div className="flex items-center gap-2 font-semibold text-[#403129]">
               <Clock className="w-4 h-4" />
-              {t.signalPending}
+              Backend integration required
             </div>
             <p>
               {t.noUdderImageUploaded}

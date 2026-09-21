@@ -63,6 +63,35 @@ class Settings(BaseSettings):
     TWILIO_ACCOUNT_SID: str = ""
     TWILIO_AUTH_TOKEN: str = ""
     TWILIO_FROM_NUMBER: str = ""
+    # Phone number that receives risk + heat-stress alerts (E.164 format, e.g. +919876543210)
+    # Can be a comma-separated list for multiple recipients: "+91...,+91..."
+    SMS_ALERT_PHONE: str = ""
+
+    # ------------------------------------------------------------------ #
+    # MQTT Bridge — ESP8266 / hardware collar integration                  #
+    # ------------------------------------------------------------------ #
+    # Set MQTT_ENABLED=true to launch the Mosquitto bridge at startup.
+    # The bridge subscribes to  godrishti/+/sensors  and translates every
+    # incoming ESP8266 payload into a POST /api/v1/ingest/esp8266 call so
+    # that all existing feature-engineering and risk-engine code is reused.
+    MQTT_ENABLED: bool = False
+    MQTT_BROKER_HOST: str = "localhost"
+    MQTT_BROKER_PORT: int = 1884
+    # Optional broker credentials (leave empty for anonymous brokers)
+    MQTT_USERNAME: str = ""
+    MQTT_PASSWORD: str = ""
+    # MQTT client identifier — must be unique per running instance
+    MQTT_CLIENT_ID: str = "godrishti-backend-bridge"
+    # Topic pattern the bridge subscribes to.
+    # '+' is a single-level wildcard; device_id is extracted from the topic.
+    MQTT_TOPIC: str = "godrishti/+/sensors"
+    # How long (seconds) to wait before retrying a failed broker connection
+    MQTT_RECONNECT_DELAY: int = 5
+
+    # Development hardware fixture. Disabled in production deployments.
+    DEV_FALLBACK_FARM_ENABLED: bool = True
+    DEV_FALLBACK_FARM_NAME: str = "Anand Demo Dairy Cluster"
+    DEV_FALLBACK_FARM_CODE: str = "ANAND-DEV"
 
     class Config:
         case_sensitive = True

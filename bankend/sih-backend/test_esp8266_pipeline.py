@@ -81,15 +81,15 @@ def http(
 # ─── Pretty print helpers ─────────────────────────────────────────────────────
 
 def section(title: str) -> None:
-    print(f"\n{'─' * 60}")
+    print(f"\n{'-' * 60}")
     print(_bold(f"  {title}"))
-    print(f"{'─' * 60}")
+    print(f"{'-' * 60}")
 
 def ok(msg: str) -> None:
-    print(f"  {_green('✅ PASS')}  {msg}")
+    print(f"  {_green('[PASS]')}  {msg}")
 
 def fail(msg: str, detail: Any = None) -> None:
-    print(f"  {_red('❌ FAIL')}  {msg}")
+    print(f"  {_red('[FAIL]')}  {msg}")
     if detail:
         if isinstance(detail, dict):
             print(f"           {json.dumps(detail, indent=10)}")
@@ -97,7 +97,7 @@ def fail(msg: str, detail: Any = None) -> None:
             print(f"           {detail}")
 
 def info(msg: str) -> None:
-    print(f"  {_yellow('ℹ')}{_yellow(' INFO')}  {msg}")
+    print(f"  {_yellow('[INFO]')}  {msg}")
 
 
 # ─── Test helpers ─────────────────────────────────────────────────────────────
@@ -199,7 +199,7 @@ class PipelineTest:
         STEP 1 — API accepts the ESP8266 payload.
         Returns the reading_id on success, None on failure.
         """
-        section("STEP 1 — API accepts the ESP8266 payload")
+        section("STEP 1 -- API accepts the ESP8266 payload")
 
         esp_payload = {
             "cow_id": self.tag_id,
@@ -217,17 +217,17 @@ class PipelineTest:
 
         print()
         if status_code == 200 and body.get("status") == "ok":
-            ok(f"Status {status_code} — endpoint accepted the payload")
+            ok(f"Status {status_code} -- endpoint accepted the payload")
             ok(f"reading_id  = {body.get('reading_id')}")
             ok(f"animal_id   = {body.get('animal_id')}")
             ok(f"tag_id      = {body.get('tag_id')}")
             stored = body.get("stored", {})
-            ok(f"surface_temp_c stored = {stored.get('surface_temp_c')} °C")
-            ok(f"ambient_temp_c stored = {stored.get('ambient_temp_c')} °C")
+            ok(f"surface_temp_c stored = {stored.get('surface_temp_c')} deg C")
+            ok(f"ambient_temp_c stored = {stored.get('ambient_temp_c')} deg C")
             ok(f"relative_humidity     = {stored.get('relative_humidity')} %")
             ok(f"activity_raw          = {stored.get('activity_raw')}")
             ok(f"THI computed          = {stored.get('thi')}")
-            ok(f"next_step hint        = {body.get('next_step', '—')}")
+            ok(f"next_step hint        = {body.get('next_step', '-')}")
             return body.get("reading_id")
         else:
             fail(f"Status {status_code}", body)
@@ -236,9 +236,9 @@ class PipelineTest:
 
     def step2_db(self) -> bool:
         """
-        STEP 2 — Reading is stored in MongoDB (verify via sensor-history endpoint).
+        STEP 2 -- Reading is stored in MongoDB (verify via sensor-history endpoint).
         """
-        section("STEP 2 — Reading stored in database")
+        section("STEP 2 -- Reading stored in database")
 
         # Small pause to let any async baseline update settle
         time.sleep(0.5)
@@ -264,8 +264,8 @@ class PipelineTest:
         latest = readings[0]
         ok(f"Total readings in DB   = {total}")
         ok(f"Latest reading source  = {latest.get('source')}")
-        ok(f"surface_temp_c         = {latest.get('surface_temp_c')} °C")
-        ok(f"ambient_temp_c         = {latest.get('ambient_temp_c')} °C")
+        ok(f"surface_temp_c         = {latest.get('surface_temp_c')} deg C")
+        ok(f"ambient_temp_c         = {latest.get('ambient_temp_c')} deg C")
         ok(f"relative_humidity      = {latest.get('relative_humidity')} %")
         ok(f"activity_raw           = {latest.get('activity_raw')}")
         ok(f"thi                    = {latest.get('thi')}")
@@ -287,15 +287,15 @@ class PipelineTest:
                 self.failures += 1
 
         if value_ok:
-            ok("All sensor values match what was sent  ✓")
+            ok("All sensor values match what was sent")
         return value_ok
 
     def step3_ml_receives(self) -> bool:
         """
-        STEP 3 — ML engine receives the data (trigger risk compute,
+        STEP 3 -- ML engine receives the data (trigger risk compute,
         verify features were extracted from the stored reading).
         """
-        section("STEP 3 — ML engine receives the data")
+        section("STEP 3 -- ML engine receives the data")
 
         info(f"Triggering POST /api/v1/risk/compute for animal_id={self.animal_id}")
         status_code, body = http(
@@ -322,15 +322,15 @@ class PipelineTest:
 
         if compute_status == "no_data":
             fail(
-                "ML engine reported 'no_data' — the reading was stored but "
-                "baselines haven't been computed yet (need ≥2 readings for z-scores).\n"
+                "ML engine reported 'no_data' -- the reading was stored but "
+                "baselines haven't been computed yet (need >=2 readings for z-scores).\n"
                 "           This is normal on the very first reading. "
                 "Send a second reading and retry.",
                 result,
             )
-            # This is a known-good state on first run — warn but don't hard-fail
+            # This is a known-good state on first run -- warn but don't hard-fail
             info("Hint: send 2-3 readings before the ML engine can compute deviations.")
-            return True  # not a failure — pipeline is working correctly
+            return True  # not a failure -- pipeline is working correctly
 
         if compute_status == "error":
             fail(f"Risk compute error: {result.get('error')}", result)
@@ -339,9 +339,9 @@ class PipelineTest:
 
         if compute_status == "computed":
             ok(f"Risk compute status    = {compute_status}")
-            ok(f"Engine used            = {result.get('engine_used', '—')}")
-            ok(f"Model version          = {result.get('model_version', '—')}")
-            ok("ML engine successfully received and processed sensor data  ✓")
+            ok(f"Engine used            = {result.get('engine_used', '-')}")
+            ok(f"Model version          = {result.get('model_version', '-')}")
+            ok("ML engine successfully received and processed sensor data")
             return True
 
         # Unexpected status
@@ -351,9 +351,9 @@ class PipelineTest:
 
     def step4_prediction(self) -> bool:
         """
-        STEP 4 — ML prediction is returned (risk level + score).
+        STEP 4 -- ML prediction is returned (risk level + score).
         """
-        section("STEP 4 — Prediction returned")
+        section("STEP 4 -- Prediction returned")
 
         info(f"Fetching latest risk score for animal_id={self.animal_id}")
         url = f"{self.base}/api/v1/animals/{self.animal_id}/risk"
@@ -363,11 +363,11 @@ class PipelineTest:
         if status_code == 404:
             # No prediction yet (happens if step3 got 'no_data')
             info(
-                "No risk score stored yet — this happens when there is only one reading "
-                "(need ≥2 for baseline deviation)."
+                "No risk score stored yet -- this happens when there is only one reading "
+                "(need >=2 for baseline deviation)."
             )
             info("The pipeline is correctly wired. Send more readings to get predictions.")
-            ok("Endpoint reachable — prediction will appear after more data  ✓")
+            ok("Endpoint reachable -- prediction will appear after more data")
             return True
 
         if status_code != 200:
@@ -387,9 +387,9 @@ class PipelineTest:
 
         rec = body.get("recommended_action")
         if rec:
-            ok(f"recommendation         = {rec[:80]}{'…' if len(rec) > 80 else ''}")
+            ok(f"recommendation         = {rec[:80]}...")
 
-        ok("Full prediction pipeline working end-to-end  ✓")
+        ok("Full prediction pipeline working end-to-end")
         return True
 
     # ── run all steps ─────────────────────────────────────────────────────────
@@ -397,25 +397,25 @@ class PipelineTest:
     def run(self) -> int:
         """Run all 4 steps. Returns exit code (0 = all pass, 1 = any fail)."""
         print()
-        print(_bold("═" * 60))
-        print(_bold("  Gorakshak — ESP8266 Pre-Connection Pipeline Test"))
-        print(_bold("═" * 60))
+        print(_bold("=" * 60))
+        print(_bold("  Gorakshak -- ESP8266 Pre-Connection Pipeline Test"))
+        print(_bold("=" * 60))
         print(f"  Backend : {self.base}")
         print(f"  Animal  : {self.tag_id}")
         print(f"  Time    : {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S UTC')}")
 
         # Setup
-        section("SETUP — Auth + Farm + Animal")
+        section("SETUP -- Auth + Farm + Animal")
         try:
-            info("Logging in …")
+            info("Logging in ...")
             self._ensure_user()
             ok("Authenticated")
 
-            info("Ensuring test farm exists …")
+            info("Ensuring test farm exists ...")
             self._ensure_farm()
             ok(f"Farm ready  (id={self.farm_id})")
 
-            info(f"Ensuring test animal '{self.tag_id}' exists …")
+            info(f"Ensuring test animal '{self.tag_id}' exists ...")
             self._ensure_animal()
             ok(f"Animal ready (id={self.animal_id})")
         except Exception as exc:
@@ -430,12 +430,12 @@ class PipelineTest:
 
         # Summary
         print()
-        print("═" * 60)
+        print("=" * 60)
         if self.failures == 0:
-            print(_green(_bold("  ✅ ALL CHECKS PASSED — Safe to connect the ESP8266")))
+            print(_green(_bold("  [PASS] ALL CHECKS PASSED -- Safe to connect the ESP8266")))
         else:
-            print(_red(_bold(f"  ❌ {self.failures} CHECK(S) FAILED — Fix above errors before connecting ESP8266")))
-        print("═" * 60)
+            print(_red(_bold(f"  [FAIL] {self.failures} CHECK(S) FAILED -- Fix above errors before connecting ESP8266")))
+        print("=" * 60)
         print()
 
         return 0 if self.failures == 0 else 1

@@ -1,6 +1,6 @@
 """Tests for optional Twilio heat-stress SMS delivery."""
 
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import httpx
 import pytest
@@ -16,20 +16,23 @@ async def test_send_sms_skips_when_not_configured():
 
 @pytest.mark.asyncio
 async def test_send_sms_posts_to_twilio():
-    response = httpx.Response(201, request=httpx.Request("POST", "https://example.com"))
-    fake_client = AsyncMock()
-    fake_client.__aenter__.return_value.post.return_value = response
+    response = httpx.Response(201, request=httpx.Request("POST", "https://example.com"), json={"sid": "SM123"})
+    fake_client_instance = AsyncMock()
+    fake_client_instance.post.return_value = response
+
+    fake_client_cls = MagicMock()
+    fake_client_cls.return_value.__aenter__.return_value = fake_client_instance
 
     with patch.object(sms_alerting.settings, "SMS_ENABLED", True), \
          patch.object(sms_alerting.settings, "TWILIO_ACCOUNT_SID", "AC123"), \
          patch.object(sms_alerting.settings, "TWILIO_AUTH_TOKEN", "token"), \
          patch.object(sms_alerting.settings, "TWILIO_FROM_NUMBER", "+15550000000"), \
-         patch.object(sms_alerting.httpx, "AsyncClient", return_value=fake_client):
+         patch.object(sms_alerting.httpx, "AsyncClient", fake_client_cls):
         result = await sms_alerting.send_sms("+15551234567", "heat alert")
 
     assert result is True
-    fake_client.__aenter__.return_value.post.assert_awaited_once_with(
+    fake_client_instance.post.assert_awaited_once_with(
         "https://api.twilio.com/2010-04-01/Accounts/AC123/Messages.json",
         data={"To": "+15551234567", "From": "+15550000000", "Body": "heat alert"},
         auth=("AC123", "token"),
-    )
+    )

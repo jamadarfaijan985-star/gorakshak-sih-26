@@ -4,7 +4,7 @@
  * PRD §14 rules enforced here:
  * - Behavior is NOT a mastitis probability.
  * - The four states are: NORMAL | MILD DEVIATION | MODERATE DEVIATION | HIGH DEVIATION
- * - If backend endpoint is unavailable → show honest "Integration Pending" state.
+ * - If backend endpoint is unavailable → show honest "Backend integration required" state.
  * - Never convert HIGH DEVIATION into a mastitis probability.
  */
 

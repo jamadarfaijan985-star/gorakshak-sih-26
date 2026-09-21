@@ -3,6 +3,7 @@ import { useApp } from '../../context/AppContext';
 import { useAuth } from '../../context/AuthContext';
 import { animalService } from '../../services/animalService';
 import { animalApiService } from '../../services/animalApiService';
+import { deviceApiService } from '../../services/deviceApiService';
 import { milkService } from '../../services/milkService';
 import { cmtService } from '../../services/cmtService';
 import { healthService } from '../../services/healthService';
@@ -74,8 +75,8 @@ export const GlobalModals: React.FC<{ onDataChanged?: () => void }> = ({ onDataC
 
   // ── Add Animal State ──────────────────────────────────────────────────────
   const [animalForm, setAnimalForm] = useState({
-    tag: '',
-    name: '',
+    tag: 'F01_COW_001',
+    name: 'F01_COW_001',
     species: 'cow' as Species,
     breed: 'Gir (गीर)',
     ageYears: 4,
@@ -84,7 +85,7 @@ export const GlobalModals: React.FC<{ onDataChanged?: () => void }> = ({ onDataC
     avgDailyYieldLiters: 12,
     farm: 'Anand Demo Dairy Cluster',
     image: 'https://images.unsplash.com/photo-1546445317-29f4545e9d53?auto=format&fit=crop&w=600&q=80',
-    collarId: 'DEV-COL-07',
+    collarId: 'ESP8266-COW-001',
   });
 
   // ── Add Milk State ────────────────────────────────────────────────────────
@@ -170,54 +171,51 @@ export const GlobalModals: React.FC<{ onDataChanged?: () => void }> = ({ onDataC
     }
     setSubmitting(true);
     try {
-      // Always save locally for demo/immediate display
-      animalService.create({
-        tag: animalForm.tag,
-        name: animalForm.name,
-        species: animalForm.species,
-        breed: animalForm.breed,
-        ageYears: Number(animalForm.ageYears),
-        sex: 'Female',
-        lactationNumber: Number(animalForm.lactationNumber),
-        daysInMilk: Number(animalForm.daysInMilk),
-        avgDailyYieldLiters: Number(animalForm.avgDailyYieldLiters),
-        farm: animalForm.farm,
-        image: animalForm.image,
-        riskScore: 15,
-        riskLevel: 'no_risk',
-        riskTrend: 'stable',
-        healthStatus: 'healthy',
-        collarId: animalForm.collarId,
-        riskFactors: ['Newly enrolled animal — baseline calibration active'],
-        baselineSurfaceTemp: animalForm.species === 'cow' ? 34.2 : 33.8,
-        baselineRuminationMinutes: 460,
-        baselineActivityScore: 65,
-        currentSensors: {
-          timestamp: 'Just now',
-          surfaceTemp: animalForm.species === 'cow' ? 34.2 : 33.8,
-          surfaceTempLabel: 'Measured',
-          activityScore: 65,
-          movementLabel: 'Measured',
-          ruminationMinutes: 460,
-          ruminationLabel: 'AI-Inferred',
-          chewingIntensity: 75,
-          ambientTemp: 30.2,
-          humidity: 62,
-          thi: 78.4,
-          thiLabel: 'Estimated',
-        },
-      });
-
-      // POST to backend in live mode
       if (isLive && activeFarmId) {
-        await animalApiService.create({
+        if (animalForm.collarId !== 'ESP8266-COW-001') {
+          throw new Error('Smart Collar ID must be ESP8266-COW-001 for the real sensor.');
+        }
+
+        const animal = await animalApiService.create({
           farm_id: activeFarmId,
-          tag_id: animalForm.tag,
+          tag_id: 'F01_COW_001',
           species: animalForm.species,
           breed: animalForm.breed || undefined,
           age_months: Math.round(Number(animalForm.ageYears) * 12),
           lactation_number: Number(animalForm.lactationNumber),
           status: 'active',
+        });
+
+        await deviceApiService.register('ESP8266-COW-001', animal.tag_id);
+        window.dispatchEvent(new CustomEvent('godrishti:animals-changed'));
+      } else {
+        animalService.create({
+          tag: animalForm.tag,
+          name: animalForm.name,
+          species: animalForm.species,
+          breed: animalForm.breed,
+          ageYears: Number(animalForm.ageYears),
+          sex: 'Female',
+          lactationNumber: Number(animalForm.lactationNumber),
+          daysInMilk: Number(animalForm.daysInMilk),
+          avgDailyYieldLiters: Number(animalForm.avgDailyYieldLiters),
+          farm: animalForm.farm,
+          image: animalForm.image,
+          riskScore: 15,
+          riskLevel: 'no_risk',
+          riskTrend: 'stable',
+          healthStatus: 'healthy',
+          collarId: animalForm.collarId,
+          riskFactors: ['Newly enrolled animal — baseline calibration active'],
+          baselineSurfaceTemp: animalForm.species === 'cow' ? 34.2 : 33.8,
+          baselineRuminationMinutes: 460,
+          baselineActivityScore: 65,
+          currentSensors: {
+            timestamp: 'Just now', surfaceTemp: animalForm.species === 'cow' ? 34.2 : 33.8,
+            surfaceTempLabel: 'Measured', activityScore: 65, movementLabel: 'Measured',
+            ruminationMinutes: 460, ruminationLabel: 'AI-Inferred', chewingIntensity: 75,
+            ambientTemp: 30.2, humidity: 62, thi: 78.4, thiLabel: 'Estimated',
+          },
         });
       }
 
@@ -479,7 +477,8 @@ export const GlobalModals: React.FC<{ onDataChanged?: () => void }> = ({ onDataC
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="block font-semibold text-[#403129] mb-1">Tag / RFID *</label>
-                  <input type="text" required value={animalForm.tag}
+                  <input type="text" required value={isLive ? 'F01_COW_001' : animalForm.tag}
+                    readOnly={isLive}
                     onChange={(e) => setAnimalForm({ ...animalForm, tag: e.target.value })}
                     placeholder="e.g. F01_COW_015"
                     className="w-full px-3 py-2 border border-[#D9CFC7] rounded-xl focus:border-[#8A5B3D] outline-hidden bg-[#F9F8F6]"
@@ -553,7 +552,8 @@ export const GlobalModals: React.FC<{ onDataChanged?: () => void }> = ({ onDataC
                 </div>
                 <div>
                   <label className="block font-semibold text-[#403129] mb-1">Smart Collar ID</label>
-                  <input type="text" value={animalForm.collarId}
+                  <input type="text" value={isLive ? 'ESP8266-COW-001' : animalForm.collarId}
+                    readOnly={isLive}
                     onChange={(e) => setAnimalForm({ ...animalForm, collarId: e.target.value })}
                     placeholder="e.g. DEV-COL-08"
                     className="w-full px-3 py-2 border border-[#D9CFC7] rounded-xl bg-[#F9F8F6]"

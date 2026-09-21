@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useCallback } from 'react';
+import React, { useState, useMemo, useCallback, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { useApp } from '../context/AppContext';
 import { useAuth } from '../context/AuthContext';
@@ -96,6 +96,12 @@ export const Animals: React.FC = () => {
         }
       : undefined,
   );
+
+  useEffect(() => {
+    const handleAnimalsChanged = () => { refetch(); };
+    window.addEventListener('godrishti:animals-changed', handleAnimalsChanged);
+    return () => window.removeEventListener('godrishti:animals-changed', handleAnimalsChanged);
+  }, [refetch]);
 
   // ── Demo data ──────────────────────────────────────────────────────────────
   const demoAnimals = useMemo(() => {

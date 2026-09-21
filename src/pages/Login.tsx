@@ -161,7 +161,7 @@ export const Login: React.FC = () => {
         <p className="mt-4 text-center text-[11px] text-[#746E68]">
           Backend:{' '}
           <span className="font-mono bg-[#EFE9E3] px-1 py-0.5 rounded text-[#403129]">
-            {import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000'}
+            {env.API_BASE_URL}
           </span>
         </p>
       </div>

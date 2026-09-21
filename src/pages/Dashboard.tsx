@@ -31,6 +31,7 @@ import { useAuth } from '../context/AuthContext';
 import { useHerdSummary } from '../hooks/useFarm';
 import { useAnimalList } from '../hooks/useAnimals';
 import { useAlerts } from '../hooks/useAlerts';
+import { useDeviceStatus } from '../hooks/useDeviceStatus';
 import { riskApiService } from '../services/riskApiService';
 
 // Legacy local services (demo mode / fallback)
@@ -41,6 +42,7 @@ import { deviceService } from '../services/deviceService';
 import { RiskBadge } from '../components/RiskBadge';
 import { ScientificDisclaimer } from '../components/ScientificDisclaimer';
 import { env } from '../config/env';
+import { parseBackendDate } from '../utils/date';
 
 import type { AnimalResponse, AlertResponse, HerdSummaryResponse } from '../types/api';
 import type { Animal, Alert, Device } from '../types';
@@ -80,6 +82,12 @@ const StatSkeleton = () => (
 export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => {
   const { t, farmMode, speciesFilter, openModal, showToast } = useApp();
   const { activeFarmId, user } = useAuth();
+  const isLive = !env.DEMO_MODE && !!activeFarmId;
+  const isDemo = env.DEMO_MODE;
+  const { data: deviceStatus, error: deviceError, refetch: refetchDevice } = useDeviceStatus(
+    isLive ? 'ESP8266-COW-001' : undefined,
+    10_000,
+  );
 
   // ── Live backend data ──────────────────────────────────────────────────────
   const {
@@ -126,14 +134,10 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
 
   useEffect(() => {
     if (env.DEMO_MODE) loadDemoData();
-    else {
-      // Devices have no backend endpoint — always load from localStorage
-      setDevices(deviceService.getAll());
-    }
+    else setDevices([]);
   }, [speciesFilter, refreshKey, loadDemoData]);
 
   // ── Derived stats ──────────────────────────────────────────────────────────
-  const isLive = !env.DEMO_MODE && !!activeFarmId;
   const isLoading = isLive && (summaryLoading || animalsLoading || alertsLoading);
 
   // Live stats from herd summary
@@ -153,7 +157,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
     : null;
 
   // Demo stats
-  const demoStats = env.DEMO_MODE ? animalService.getHerdStats() : null;
+  const demoStats = isDemo ? animalService.getHerdStats() : null;
 
   const stats = liveStats ?? demoStats;
 
@@ -161,11 +165,11 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
   const liveAnimals: AnimalResponse[] = apiAnimalsPage?.data ?? [];
   const topPriorityAnimals = isLive
     ? liveAnimals.slice(0, 4)
-    : [...demoAnimals].sort((a, b) => b.riskScore - a.riskScore).slice(0, 4);
+    : isDemo ? [...demoAnimals].sort((a, b) => b.riskScore - a.riskScore).slice(0, 4) : [];
 
   // Alerts
   const liveAlerts: AlertResponse[] = apiAlertsPage?.data ?? [];
-  const displayAlerts = isLive ? liveAlerts : demoAlerts;
+  const displayAlerts = isLive ? liveAlerts : isDemo ? demoAlerts : [];
 
   // ── Alert actions ──────────────────────────────────────────────────────────
   const handleAcknowledgeDemo = (id: string, e: React.MouseEvent) => {
@@ -242,22 +246,22 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
 
       {/* ── Top banner ──────────────────────────────────────────────────── */}
       <div className="bg-[#EFE9E3] border border-[#D9CFC7] rounded-2xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 shadow-xs">
-        <div className="flex items-center gap-3">
-          <div className="p-2 bg-[#8A5B3D] text-white rounded-xl">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="p-2 bg-[#8A5B3D] text-white rounded-xl shrink-0">
             <Sparkles className="w-5 h-5" />
           </div>
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="font-extrabold text-sm text-[#403129]">
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="font-extrabold text-sm text-[#403129] leading-tight">
                 GoDrishti — Dairy Livestock Health Intelligence
-</span>
+              </span>
               {isLive && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300">
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-300 shrink-0">
                   {t.liveLabel}
                 </span>
               )}
-              {!isLive && (
-                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+              {isDemo && (
+                <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300 shrink-0">
                   {t.demoDataLabel}
                 </span>
               )}
@@ -268,7 +272,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
           </div>
         </div>
 
-        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end">
+        <div className="flex items-center gap-2 self-stretch sm:self-auto justify-end shrink-0">
           {isLive && user && (
             <span className="text-[11px] text-[#746E68] hidden sm:inline">
               {user.name} · {user.role}
@@ -281,7 +285,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
           >
             <RefreshCw className="w-4 h-4" />
           </button>
-          <span className="text-[11px] text-[#746E68]">
+          <span className="text-[11px] text-[#746E68] hidden xs:inline">
             {farmMode === 'low_resource' ? t.lowResourceSmallholder : t.connectedMultiSensor}
           </span>
         </div>
@@ -372,7 +376,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
               </div>
             </div>
 
-            {/* Devices — localStorage only; no backend device endpoint exists */}
+            {/* Devices — authoritative backend status in real mode */}
             <div className="bg-white p-4 rounded-2xl border border-[#D9CFC7] shadow-xs flex flex-col justify-between">
               <div className="flex items-center justify-between text-[#746E68]">
                 <span className="text-xs font-semibold">{t.connectedDevices}</span>
@@ -380,17 +384,13 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
               </div>
               <div className="mt-2 flex items-baseline gap-2">
                 <span className="text-2xl sm:text-3xl font-extrabold text-[#403129]">
-                  {devices.filter((d) => d.connectionStatus === 'Connected').length}
+                  {isLive ? (deviceStatus?.status === 'connected' ? 1 : 0) : devices.filter((d) => d.connectionStatus === 'Connected').length}
                 </span>
-                <span className="text-xs text-[#746E68]">/ {devices.length} {t.totalLabel}</span>
+                <span className="text-xs text-[#746E68]">/ {isLive ? 1 : devices.length} {t.totalLabel}</span>
               </div>
               <div className="text-[11px] text-[#746E68] mt-2 pt-2 border-t border-[#EFE9E3] flex items-center justify-between">
-                <span>{t.lowBattery}: <strong>{devices.filter((d) => d.batteryLevel < 25).length}</strong></span>
-                {isLive && (
-                  <span className="text-[10px] text-[#8A5B3D] font-semibold bg-[#EFE9E3] px-1.5 py-0.5 rounded whitespace-nowrap">
-                    {t.deviceLocalBadge}
-                  </span>
-                )}
+                <span>{isLive ? (deviceStatus?.status ?? 'offline') : `${t.lowBattery}: ${devices.filter((d) => d.batteryLevel < 25).length}`}</span>
+                <Link to="/devices" className="text-[10px] text-[#8A5B3D] font-semibold">Connection Center</Link>
               </div>
             </div>
 
@@ -413,6 +413,35 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
           </div>
         )}
       </section>
+
+      {isLive && (
+        <section className="bg-white border border-[#D9CFC7] rounded-2xl p-4 sm:p-5 shadow-xs space-y-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold text-[#403129]">REAL-TIME DEVICE STATUS</h2>
+              <p className="text-xs text-[#746E68] break-all">{deviceStatus?.device_id ?? 'ESP8266-COW-001'} · {deviceStatus?.tag_id ?? '—'} · {deviceStatus?.farm_name ?? 'Mapped farm'}</p>
+            </div>
+            <Link to="/devices" className="text-xs font-bold text-[#8A5B3D] shrink-0">Connection Center</Link>
+          </div>
+          {deviceError ? <div className="p-3 bg-red-50 border border-red-200 rounded-xl text-xs text-red-800">Backend connection failed: {deviceError}</div> : deviceStatus ? (
+            <>
+              <div className="flex flex-wrap items-center gap-2 text-xs">
+                <span className={`px-2.5 py-1 rounded-full font-bold ${deviceStatus.status === 'connected' ? 'bg-emerald-100 text-emerald-800' : deviceStatus.status === 'stale' ? 'bg-amber-100 text-amber-900' : 'bg-red-100 text-red-800'}`}>{deviceStatus.status === 'connected' ? '🟢 Connected' : deviceStatus.status === 'stale' ? '🟡 Stale' : '🔴 Offline'}</span>
+                <span className="text-[#746E68]">Last packet: {deviceStatus.last_seen ? `${Math.max(0, Math.floor((Date.now() - parseBackendDate(deviceStatus.last_seen).getTime()) / 1000))}s ago` : '—'}</span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 text-xs">
+                <div><div className="text-[#746E68]" >Surface Temp</div><div className="font-bold">{deviceStatus.latest_reading?.surface_temp_c ?? '—'} °C</div></div>
+                <div><div className="text-[#746E68]">Ambient Temp</div><div className="font-bold">{deviceStatus.latest_reading?.ambient_temp_c ?? '—'} °C</div></div>
+                <div><div className="text-[#746E68]">Humidity</div><div className="font-bold">{deviceStatus.latest_reading?.relative_humidity ?? '—'}%</div></div>
+                <div><div className="text-[#746E68]">Activity</div><div className="font-bold">{deviceStatus.latest_reading?.activity_raw ?? '—'}</div></div>
+                <div><div className="text-[#746E68]">Rumination</div><div className="font-bold">{deviceStatus.latest_reading?.rumination_inferred_min ?? '—'} min</div></div>
+                <div><div className="text-[#746E68]">Acoustic</div><div className="font-bold">{typeof deviceStatus.latest_reading?.audio_features?.mic_average === 'number' ? deviceStatus.latest_reading.audio_features.mic_average : '—'}</div></div>
+              </div>
+              <div className="text-xs text-[#746E68]">Risk: <strong className="text-[#403129]">{deviceStatus.latest_risk?.risk_score_numeric != null ? `${(deviceStatus.latest_risk.risk_score_numeric * 100).toFixed(0)}/100` : '—'}</strong> · <strong className="text-emerald-700">{deviceStatus.latest_risk?.risk_level === 'no_risk' ? 'Below Alert Threshold' : deviceStatus.latest_risk?.risk_level ?? 'No risk score yet'}</strong></div>
+            </>
+          ) : <div className="text-xs text-[#746E68]">Waiting for live sensor data</div>}
+        </section>
+      )}
 
       {/* ── Risk distribution bar + Quick actions ───────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -568,7 +597,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
                         {animal.status}
                       </span>
                     </div>
-                    <div className="mt-3 pt-3 border-t border-[#D9CFC7]/60 flex items-center justify-between text-xs">
+                    <div className="mt-3 pt-3 border-t border-[#D9CFC7]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
                       <Link to={`/animals/${animal.id}`} className="font-bold text-[#8A5B3D] hover:text-[#403129] flex items-center gap-1">
                         <span>{t.viewAnimal}</span>
                         <ArrowRight className="w-3.5 h-3.5" />
@@ -593,7 +622,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
         )}
 
         {/* Demo mode — original rich cards */}
-        {!isLive && (
+        {isDemo && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             {topPriorityAnimals.map((animal: Animal) => (
               <div key={animal.id} className="bg-white border border-[#D9CFC7] rounded-2xl p-4 shadow-xs hover:border-[#8A5B3D] transition-all">
@@ -645,7 +674,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
                   </div>
                 </div>
 
-                <div className="mt-3 pt-3 border-t border-[#D9CFC7]/60 flex items-center justify-between text-xs">
+                <div className="mt-3 pt-3 border-t border-[#D9CFC7]/60 flex flex-wrap items-center justify-between gap-2 text-xs">
                   <Link to={`/animals/${animal.id}`} className="font-bold text-[#8A5B3D] hover:text-[#403129] flex items-center gap-1">
                     <span>{t.viewAnimal}</span>
                     <ArrowRight className="w-3.5 h-3.5" />
@@ -711,7 +740,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center text-xs">
+                <div className="flex flex-wrap items-center gap-2 self-end sm:self-center text-xs">
                   {alert.status === 'open' && (
                     <button onClick={(e) => handleAcknowledgeLive(alert.id, e)} className="px-2.5 py-1 bg-white border border-[#D9CFC7] hover:bg-[#EFE9E3] text-[#403129] rounded-lg font-semibold">
                       {t.acknowledge}
@@ -753,7 +782,7 @@ export const Dashboard: React.FC<{ refreshKey?: number }> = ({ refreshKey }) => 
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2 self-end sm:self-center text-xs">
+                <div className="flex flex-wrap items-center gap-2 self-end sm:self-center text-xs">
                   {alert.status === 'active' && (
                     <button onClick={(e) => handleAcknowledgeDemo(alert.id, e)} className="px-2.5 py-1 bg-white border border-[#D9CFC7] hover:bg-[#EFE9E3] text-[#403129] rounded-lg font-semibold">{t.acknowledge}</button>
                   )}
