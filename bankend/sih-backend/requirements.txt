@@ -1,3 +1,8 @@
+# PyTorch CPU-only index URL (prevents installing large CUDA/NVIDIA packages on CPU servers like Render)
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch>=2.2.0
+torchvision>=0.17.0
+
 # Core Dependencies
 fastapi>=0.108.0
 uvicorn[standard]>=0.24.0
@@ -23,14 +28,12 @@ scikit-learn>=1.4.0
 xgboost>=2.0.0
 
 # Udder CV inference (YOLO models)
-# ultralytics requires torch; CPU-only install avoids large CUDA wheel on servers.
-# On GPU hosts, install torch+CUDA separately before installing ultralytics.
 ultralytics>=8.2.0
 
-# SHAP explanations for forecasting models (optional but recommended)
+# SHAP explanations for forecasting models
 shap>=0.45.0
 
-# Development Dependencies (optional)
+# Development Dependencies
 pytest==7.4.3
 pytest-asyncio==0.21.1
 pytest-cov==4.1.0
